@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 10 (security audit fixes) fully verified. Backend: 22/22 new iter10 tests + 42/42 iter7/8/9 regression = 64/64 pass. SEC-001 verified: PATCH /api/users/{super_admin_id} with ADMIN token returns 403 'Hanya SUPER ADMIN yang dapat mengubah SUPER ADMIN' for all three body variants (password:Hacked@2026, role:KARYAWAN, name:changed); PATCH /api/users/{super_admin_id}/status as ADMIN also 403; superadmin login with SuperAdmin@2026 still returns 200 (no password mutation happened). Positive regression: ADMIN can PATCH own record (name change 200) and toggle own status (200); SUPER ADMIN can still update any KARYAWAN (200 with new name persisted). SEC-002 verified: `git check-ignore -v backend/.env` and `frontend/.env` both exit 0 pointing at .gitignore lines 38-39; .gitignore contains all four required entries (.env, *.env, backend/.env, frontend/.env). SEC-003 verified: /api/auth/verify-otp with unknown username returns 401 with generic body 'Kode OTP salah atau tidak valid.' (no 404, no leak); same generic 401 for wrong code / already-verified. /api/auth/resend-otp for unknown user returns 200 {message: 'Jika akun terdaftar dan menunggu aktivasi ...'} without delivery leak; same for already-active karyawan. Rate limiter: 5 resend calls for a non-existent username produced 0 outbox rows (never sent), confirming per-username throttle. SEC-005 verified: 6th consecutive wrong login for a unique username within 5 min returns 429 'Terlalu banyak percobaan login. Coba lagi beberapa menit lagi.'; on karyawan a successful login resets the counter so 3 further wrong attempts still return 401 (not 429). Frontend E2E (390x844): superadmin login → Dashboard (world-map + AlertBanner + full command center card) loads with zero console errors; drawer nav → 'Akses / User' → '+ Tambah' opens create-user form → filled unique username 'iter10test55a890' + email @example.com + KARYAWAN + WA → SIMPAN USER shows toast 'User baru dibuat. OTP dikirim ke WhatsApp untuk aktivasi.' AND OtpSheet (testID='otp-sheet') pops up with 'MOCK OTP (dev mode)' + visible 6-digit code 034253 — confirms POST /users still returns delivery.code as before (unchanged). No red screen; only benign 'shadow* style props deprecated' RN web warning (same as iter9). Test user cleaned up (DELETE 200). Old iter7 test `test_resend_for_active_returns_400` was updated to `test_resend_for_active_returns_generic_ack` (expects 200 + generic message) — necessary because SEC-003 intentionally changed this endpoint from 400→200 generic ack; the fix is documented inline.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration10.py",
+    "/app/backend/tests/test_iteration7.py",
+    "/app/test_reports/pytest/pytest_iter10.xml",
+    "/app/test_reports/pytest/pytest_iter10_full.xml",
+    "/app/test_reports/iter10_login.jpeg",
+    "/app/test_reports/iter10_dashboard.jpeg",
+    "/app/test_reports/iter10_users.jpeg",
+    "/app/test_reports/iter10_user_created.jpeg"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py::update_user (L910-915) correctly gates SUPER ADMIN mutations behind caller_is_super and also blocks role-promotion to SUPER ADMIN by non-super callers — dual check is defense-in-depth.",
+    "server.py::toggle_user_status (L932-933) blocks ADMIN from touching SUPER ADMIN status — matches spec.",
+    "server.py::delete_user (L948-949) also blocks ADMIN from deleting SUPER ADMIN — same protection extends to DELETE, not just PATCH (bonus hardening).",
+    "server.py::_rate_check (L60-68) uses fixed 5-min / 10-min windows with per-username buckets — appropriate for single-instance; note this is in-process only (main agent may want Redis when scaling to multi-worker).",
+    "server.py::verify_otp (L472-490) collapses all 4 enumeration vectors (unknown user, missing OTP, already-verified, wrong code) into the same generic 401 — clean.",
+    "server.py::resend_otp (L500-515) silently throttles and always returns the same ack — no timing leak on the count-only path (Mongo hit skipped when rate-limited).",
+    "server.py::login (L451-465) increments attempt BEFORE credential check and resets ONLY on full success (not on OTP-pending) — correct semantics.",
+    "Login.tsx (L57-64) uses `res.delivery?.provider` and `res.delivery?.code || null` with try/catch fallback to `setOtp({open:true})` — resilient to SEC-003 generic ack (no delivery field).",
+    ".gitignore lines 34-39 have layered coverage (.env, .env.*, *.env, backend/.env, frontend/.env) — belt-and-suspenders; already-tracked .env files would still need `git rm --cached` if any were staged before (main agent should verify: `git ls-files backend/.env frontend/.env` returns empty)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration10.py",
+    "/app/backend/tests/test_iteration7.py",
+    "/app/test_reports/pytest/pytest_iter10.xml",
+    "/app/test_reports/pytest/pytest_iter10_full.xml",
+    "/app/test_reports/iteration_10.json"
+  ],
+  "success_rate": {
+    "backend": "100% (22/22 iter10 + 42/42 iter7+iter8+iter9 regression = 64/64)",
+    "frontend": "100% (superadmin login + dashboard load + create pending KARYAWAN + OTP sheet with mock code all green, 0 console errors)"
+  },
+  "seed_data_creation": "One temp KARYAWAN 'iter10test55a890' (@example.com) was created via UI to verify OTP sheet flow; deleted at end (200). No seed users mutated. Rate-limiter buckets for TEST_ratelim_<hex> unique usernames will expire in 5-10 min naturally.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend live at https://ai-management-hub-8.preview.emergentagent.com. Full regression: `EXPO_BACKEND_URL=<preview> python -m pytest backend/tests/test_iteration7.py backend/tests/test_iteration8.py backend/tests/test_iteration9.py backend/tests/test_iteration10.py -o addopts=''`. Note: iter7 `TestPublicResendOtp::test_resend_for_active_returns_400` was renamed to `test_resend_for_active_returns_generic_ack` and now expects 200 — this is the correct new SEC-003 behavior. When writing new tests that intentionally spam login/resend endpoints, use unique per-test usernames (uuid.uuid4().hex[:6]) to avoid triggering the in-memory 5/5min or 3/10min limiter on subsequent tests; the limiter has no HTTP reset endpoint. Frontend testIDs to reuse: open-drawer, menu-Akses / User, user-input-name/username/email/whatsapp/password, role-SUPER-ADMIN/ADMIN/KARYAWAN, save-user, otp-sheet, otp-input, otp-verify, otp-close, otp-resend, resend-otp-<user_id>, edit-user-<user_id>, toggle-user-<user_id>, delete-user-<user_id>. Email validator (pydantic EmailStr) rejects .local TLD via email-validator's special-use list — use @example.com when creating test users via API/UI, not @export7ai.local (seed users are exempt because they bypass validation). New email TLD note: this may deserve a config in main app to allow .local for internal use.",
+  "rca_of_issue": "N/A — all four security fixes verified working; only test-side change was updating iter7's now-obsolete 400 expectation to match the new SEC-003 generic-200 contract."
+}

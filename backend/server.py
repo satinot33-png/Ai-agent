@@ -47,6 +47,31 @@ FEED_MESSAGES = [
     "Optimasi query database buyer",
 ]
 
+# In-memory rate limiter (username -> (count, window_start_epoch_seconds)).
+# Small footprint for a single-instance deployment; swap for Redis when scaling.
+_LOGIN_ATTEMPTS: Dict[str, tuple[int, float]] = {}
+_OTP_RESEND_ATTEMPTS: Dict[str, tuple[int, float]] = {}
+_LOGIN_LIMIT = 5           # 5 failed attempts
+_LOGIN_WINDOW = 300        # per 5 minutes
+_OTP_RESEND_LIMIT = 3      # 3 unauth resend attempts
+_OTP_RESEND_WINDOW = 600   # per 10 minutes
+
+
+def _rate_check(bucket: Dict[str, tuple[int, float]], key: str, limit: int, window: int) -> bool:
+    now = datetime.now(timezone.utc).timestamp()
+    count, started = bucket.get(key, (0, now))
+    if now - started > window:
+        count, started = 0, now
+    if count >= limit:
+        return False
+    bucket[key] = (count + 1, started)
+    return True
+
+
+def _rate_reset(bucket: Dict[str, tuple[int, float]], key: str) -> None:
+    bucket.pop(key, None)
+
+
 ROLES = ["SUPER ADMIN", "ADMIN", "KARYAWAN"]
 ROLE_PATTERN = "^(SUPER ADMIN|ADMIN|KARYAWAN)$"
 
@@ -424,6 +449,9 @@ async def health():
 
 @api.post("/auth/login")
 async def login(payload: LoginRequest):
+    key = payload.username.lower().strip()
+    if not _rate_check(_LOGIN_ATTEMPTS, key, _LOGIN_LIMIT, _LOGIN_WINDOW):
+        raise HTTPException(429, "Terlalu banyak percobaan login. Coba lagi beberapa menit lagi.")
     user = await db.users.find_one({"username": payload.username})
     if not user or not user.get("password_hash") or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(401, "Username atau password salah")
@@ -434,6 +462,7 @@ async def login(payload: LoginRequest):
             403,
             "Akun belum diaktivasi. Masukkan kode OTP yang dikirim ke WhatsApp Anda.",
         )
+    _rate_reset(_LOGIN_ATTEMPTS, key)
     token = await issue_session(user["user_id"])
     await audit(user, "LOGIN", f"Login username/password: {user['username']}")
     return {"session_token": token, "user": public_user(user)}
@@ -441,14 +470,14 @@ async def login(payload: LoginRequest):
 
 @api.post("/auth/verify-otp")
 async def verify_otp(payload: OTPVerifyRequest):
+    # Generic 401 for all failure modes below to avoid username enumeration.
+    generic = HTTPException(401, "Kode OTP salah atau tidak valid.")
     user = await db.users.find_one({"username": payload.username})
     if not user:
-        raise HTTPException(404, "User tidak ditemukan")
+        raise generic
     otp = await db.otps.find_one({"user_id": user["user_id"], "purpose": "activation"})
-    if not otp:
-        raise HTTPException(404, "OTP tidak ditemukan. Minta OTP baru.")
-    if otp.get("verified"):
-        raise HTTPException(400, "OTP sudah pernah digunakan.")
+    if not otp or otp.get("verified"):
+        raise generic
     expires_at = otp["expires_at"]
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
@@ -458,7 +487,7 @@ async def verify_otp(payload: OTPVerifyRequest):
         raise HTTPException(429, "Percobaan OTP melebihi batas. Minta OTP baru.")
     if not verify_password(payload.code, otp["code_hash"]):
         await db.otps.update_one({"otp_id": otp["otp_id"]}, {"$inc": {"attempts": 1}})
-        raise HTTPException(401, "Kode OTP salah")
+        raise generic
     await db.otps.update_one({"otp_id": otp["otp_id"]}, {"$set": {"verified": True}})
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"pending_activation": False}})
     user["pending_activation"] = False
@@ -469,13 +498,21 @@ async def verify_otp(payload: OTPVerifyRequest):
 
 @api.post("/auth/resend-otp")
 async def resend_otp(payload: OTPResendRequest):
+    """Public resend endpoint. Returns a generic response for any username to
+    avoid enumeration. Rate-limited per username to prevent WhatsApp abuse."""
+    key = payload.username.lower().strip()
+    ack = {"message": "Jika akun terdaftar dan menunggu aktivasi, OTP baru telah dikirim ke WhatsApp."}
+    if not _rate_check(_OTP_RESEND_ATTEMPTS, key, _OTP_RESEND_LIMIT, _OTP_RESEND_WINDOW):
+        # Silent throttle — don't reveal that this username was recently requested.
+        return ack
     user = await db.users.find_one({"username": payload.username})
-    if not user:
-        raise HTTPException(404, "User tidak ditemukan")
-    if not user.get("pending_activation"):
-        raise HTTPException(400, "Akun sudah aktif. Tidak perlu OTP.")
+    if not user or not user.get("pending_activation"):
+        return ack
     delivery = await issue_otp(user, purpose="activation")
-    return {"delivery": delivery, "message": "OTP baru telah dikirim ke WhatsApp."}
+    # For mock provider only, expose the code so dev flow can continue.
+    if delivery.get("provider") == "mock" and delivery.get("code"):
+        return {**ack, "delivery": delivery}
+    return ack
 
 
 @api.post("/auth/session")
@@ -867,8 +904,16 @@ async def update_user(user_id: str, payload: UserUpdate, user=Depends(require_ro
     password = updates.pop("password", None)
     if password:
         updates["password_hash"] = hash_password(password)
-    if updates.get("role") == "SUPER ADMIN" and user.get("role") != "SUPER ADMIN":
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+    if not target:
+        raise HTTPException(404, "User tidak ditemukan")
+    caller_is_super = user.get("role") == "SUPER ADMIN"
+    # Only SUPER ADMIN can touch another SUPER ADMIN (self-edit is allowed).
+    if target.get("role") == "SUPER ADMIN" and not caller_is_super:
+        raise HTTPException(403, "Hanya SUPER ADMIN yang dapat mengubah SUPER ADMIN")
+    if updates.get("role") == "SUPER ADMIN" and not caller_is_super:
         raise HTTPException(403, "Hanya SUPER ADMIN yang dapat memberikan role SUPER ADMIN")
+    # Non-SUPER-ADMIN cannot demote a SUPER ADMIN (target check above already covers it).
     if not updates:
         raise HTTPException(400, "Tidak ada perubahan")
     result = await db.users.update_one({"user_id": user_id}, {"$set": updates})
@@ -881,6 +926,11 @@ async def update_user(user_id: str, payload: UserUpdate, user=Depends(require_ro
 
 @api.patch("/users/{user_id}/status")
 async def toggle_user_status(user_id: str, payload: ToggleRequest, user=Depends(require_roles("SUPER ADMIN", "ADMIN"))):
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+    if not target:
+        raise HTTPException(404, "User tidak ditemukan")
+    if target.get("role") == "SUPER ADMIN" and user.get("role") != "SUPER ADMIN":
+        raise HTTPException(403, "Hanya SUPER ADMIN yang dapat mengubah status SUPER ADMIN")
     result = await db.users.update_one({"user_id": user_id}, {"$set": {"enabled": payload.enabled}})
     if not result.matched_count:
         raise HTTPException(404, "User tidak ditemukan")

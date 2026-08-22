@@ -50,11 +50,15 @@ export function Login({ onDone }: Props) {
       if (/aktivasi|aktifasi|belum diaktivasi|OTP/i.test(msg)) {
         setError("Akun belum diaktivasi. Verifikasi OTP di bawah.");
         try {
-          const res = await api<{ delivery: { code?: string | null; provider: string } }>(
+          const res = await api<{ delivery?: { code?: string | null; provider?: string } }>(
             "/auth/resend-otp",
             { method: "POST", body: JSON.stringify({ username: username.trim() }) },
           );
-          setOtp({ open: true, provider: res.delivery.provider, hint: res.delivery.code || null });
+          setOtp({
+            open: true,
+            provider: res.delivery?.provider,
+            hint: res.delivery?.code || null,
+          });
         } catch {
           setOtp({ open: true });
         }
@@ -194,11 +198,11 @@ export function Login({ onDone }: Props) {
           }
         }}
         onResend={async () => {
-          const res = await api<{ delivery: { code?: string | null; provider: string } }>(
+          const res = await api<{ delivery?: { code?: string | null; provider?: string } }>(
             "/auth/resend-otp",
             { method: "POST", body: JSON.stringify({ username: username.trim() }) },
           );
-          return { code: res.delivery.code || undefined, provider: res.delivery.provider };
+          return { code: res.delivery?.code || undefined, provider: res.delivery?.provider };
         }}
       />
     </SafeAreaView>

@@ -182,10 +182,13 @@ class TestOtpVerify:
 
 # ---------- public resend endpoint ----------
 class TestPublicResendOtp:
-    def test_resend_for_active_returns_400(self, pending_user):
+    def test_resend_for_active_returns_generic_ack(self, pending_user):
+        """SEC-003: resend-otp for any username (even active) returns 200 with generic ack to
+        avoid username enumeration. Previously returned 400 — updated for iteration 10 fix."""
         r = requests.post(f"{BASE_URL}/api/auth/resend-otp",
                           json={"username": pending_user["username"]}, timeout=15)
-        assert r.status_code == 400
+        assert r.status_code == 200
+        assert "message" in r.json()
 
     def test_resend_for_pending_generates_new_otp(self, super_token):
         # Create a new pending user
