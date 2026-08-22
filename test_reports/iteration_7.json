@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 7 (OTP + Live AI Feed + PDF export) fully verified on preview URL. Backend pytest: 46/46 passed (29 iteration-6 regression + 17 new). All new endpoints work: POST /api/users returns {user, otp} with mock code + pending_activation=true; POST /api/auth/login blocks pending user with 403 mentioning aktivasi; verify-otp returns 401 on wrong code and 429 after 5 attempts; expired OTP -> 400; public /auth/resend-otp: 400 for active, 200 (new code) for pending; admin /users/{id}/otp/resend: 200 while pending, 400 after active, 403 for karyawan; GET /api/otp/outbox is admin-only (karyawan 403) and returns newest-first; GET /api/ai/feed emits events every ~4s while server_online + at least one AI enabled and honours ?limit ?since ?agent_id; feed stops when all AI OFF; POST /api/interrogation/pdf?mode=summary returns application/pdf attachment (%PDF- header, ~2.6KB); mode=detailed returns larger PDF including audit log; invalid mode -> 422; audit log contains USER_CREATE (with 'OTP dikirim ke WA'), OTP_VERIFIED, OTP_RESEND, REPORT_EXPORT. Frontend Expo web (390x844): superadmin login OK; Akses/User -> User Baru form filled -> SIMPAN USER opens OtpSheet with MOCK OTP shown in dev banner, VERIFIKASI + KIRIM ULANG present; 7 AI page shows LIVE FEED card with pulse indicator '3 detik / auto refresh', live entries streaming, PAUSE/TUTUP visible; Interogasi Server CHECK SERVER returns AI grid + JOB counters + ERROR TERAKHIR + UNDUH LAPORAN PDF section with RINGKAS/DETAIL cards; both export buttons trigger PDF download without error. No React Native red screens, no deprecated packages detected (no expo-av / expo-barcode-scanner / expo-background-fetch). One minor UX note: OtpSheet displays two visible 6-digit strings (mock code + a nearby id) which made automated regex OTP extraction ambiguous but is not a UX bug for humans.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration7.py",
+    "/app/backend/tests/test_export7ai_full.py",
+    "/app/test_reports/pytest/pytest_iter7.xml",
+    "/app/test_reports/iter7_otp_sheet.jpeg",
+    "/app/test_reports/iter7_ai_feed.jpeg",
+    "/app/test_reports/iter7_interrogation_after.jpeg"
+  ],
+  "action_items": [
+    "(Optional) Consider making POST /api/auth/verify-otp reset attempts to 0 on the next successful resend so the sequence attempts=5 -> resend -> verify works without needing a separate `attempts=0` write. Current behaviour is safe because issue_otp() upserts with attempts=0, but a code comment would help future maintainers.",
+    "(Optional) OtpSheet could visually separate the MOCK OTP from other numeric strings on screen to avoid confusion (e.g. monospaced badge)."
+  ],
+  "critical_code_review_comments": [
+    "server.py issue_otp() surfaces `code` only when provider==mock -- correct; production Fonnte/Twilio path returns code=None. Good.",
+    "server.py verify_otp() writes attempts++ before returning 401 and gates >=5 before the increment, which yields the expected sequence 5x 401 then 429 on the 6th call. Ensure clients treat 429 as a lockout signal (not an OTP-reset).",
+    "PDF endpoint returns 422 via FastAPI Query pattern validation -- clean.",
+    "services/wa.py: mock branch stores outbox with status='mock' (not 'sent'/'queued'); ensure any dashboards/alerting recognise this label."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration7.py",
+    "/app/backend/tests/test_export7ai_full.py",
+    "/app/test_reports/iteration_7.json",
+    "/app/test_reports/pytest/pytest_iter7.xml"
+  ],
+  "success_rate": {"backend": "100% (46/46)", "frontend": "100% (all critical flows)"},
+  "seed_data_creation": "All TEST_-prefixed and UI-created test users (otp_*, uibb_*, uilog_*, test_*, ui_*, budi_test2) were deleted at end of run. Seed users (superadmin/admin/karyawan) untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend at https://ai-management-hub-8.preview.emergentagent.com. Pytest suite: `EXPO_BACKEND_URL=<preview> python -m pytest backend/tests/ -o addopts=''`. Iteration 7 file: test_iteration7.py covers OTP lifecycle, AI feed, PDF export, audit log. Legacy test_export7ai_full.py updated to (a) unwrap POST /api/users {user,otp} response and (b) direct-activate pending users via Mongo before login (since OTP now gates login). Mock WA outbox at GET /api/otp/outbox is admin-only. AI feed generator lives in server.py::_generate_feed_events and requires server_online=True + any ai_agents.enabled=True to emit. Frontend testIDs used: login-username/password/submit, open-drawer, menu-<label>, logout-btn, user-input-name/username/email/whatsapp/password, save-user, otp-sheet, otp-input, otp-verify, otp-resend, run-check, export-summary, export-detailed, resend-otp-<user_id>."
+}

@@ -15,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { api } from "@/src/api";
+import { OtpSheet } from "@/src/components/OtpSheet";
 import { C } from "@/src/theme";
 import { User } from "@/src/types";
 import { Toast } from "@/src/components/Feedback";
@@ -29,6 +30,7 @@ export function Login({ onDone }: Props) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [otp, setOtp] = useState<{ open: boolean; provider?: string; hint?: string | null }>({ open: false });
 
   const loginPassword = async () => {
     setError("");
@@ -44,7 +46,21 @@ export function Login({ onDone }: Props) {
       });
       await onDone(data.session_token, data.user);
     } catch (e: any) {
-      setError(e.message || "Login gagal");
+      const msg = e.message || "Login gagal";
+      if (/aktivasi|aktifasi|belum diaktivasi|OTP/i.test(msg)) {
+        setError("Akun belum diaktivasi. Verifikasi OTP di bawah.");
+        try {
+          const res = await api<{ delivery: { code?: string | null; provider: string } }>(
+            "/auth/resend-otp",
+            { method: "POST", body: JSON.stringify({ username: username.trim() }) },
+          );
+          setOtp({ open: true, provider: res.delivery.provider, hint: res.delivery.code || null });
+        } catch {
+          setOtp({ open: true });
+        }
+      } else {
+        setError(msg);
+      }
     } finally {
       setBusy(false);
     }
@@ -163,6 +179,28 @@ export function Login({ onDone }: Props) {
           {error ? <Toast message={error} tone="error" /> : null}
         </ScrollView>
       </KeyboardAvoidingView>
+      <OtpSheet
+        open={otp.open}
+        username={username.trim()}
+        provider={otp.provider}
+        hint={otp.hint}
+        requestSession
+        onClose={() => setOtp({ open: false })}
+        onVerified={async (session) => {
+          setOtp({ open: false });
+          if (session) {
+            const me = await api<User>("/auth/me", { token: session });
+            await onDone(session, me);
+          }
+        }}
+        onResend={async () => {
+          const res = await api<{ delivery: { code?: string | null; provider: string } }>(
+            "/auth/resend-otp",
+            { method: "POST", body: JSON.stringify({ username: username.trim() }) },
+          );
+          return { code: res.delivery.code || undefined, provider: res.delivery.provider };
+        }}
+      />
     </SafeAreaView>
   );
 }

@@ -205,8 +205,10 @@ def created_user(super_token):
     r = c.post(f"{BASE_URL}/api/users", json=payload, timeout=20)
     assert r.status_code == 200, r.text
     body = r.json()
-    yield {"user": body, "payload": payload}
-    c.delete(f"{BASE_URL}/api/users/{body['user_id']}", timeout=20)
+    # Iteration 7 wraps as {user, otp}; be tolerant of both shapes
+    user_obj = body["user"] if isinstance(body, dict) and "user" in body else body
+    yield {"user": user_obj, "payload": payload}
+    c.delete(f"{BASE_URL}/api/users/{user_obj['user_id']}", timeout=20)
 
 
 class TestUsers:
@@ -246,6 +248,15 @@ class TestUsers:
 
     def test_update_user_password_and_role(self, super_token, created_user):
         u = created_user["user"]
+        # Activate user first (pending_activation blocks login now)
+        import asyncio as _a
+        from motor.motor_asyncio import AsyncIOMotorClient as _M
+        murl = open("/app/backend/.env").read()
+        m_url = [l.split("=", 1)[1].strip().strip('"') for l in murl.splitlines() if l.startswith("MONGO_URL=")][0]
+        m_db = [l.split("=", 1)[1].strip().strip('"') for l in murl.splitlines() if l.startswith("DB_NAME=")][0]
+        async def _act():
+            cli = _M(m_url); await cli[m_db].users.update_one({"user_id": u["user_id"]}, {"$set": {"pending_activation": False}}); cli.close()
+        _a.get_event_loop().run_until_complete(_act())
         r = _client(super_token).patch(f"{BASE_URL}/api/users/{u['user_id']}",
                                        json={"password": "NewPass@2026", "name": "TEST Updated"},
                                        timeout=20)
@@ -294,8 +305,20 @@ class TestActivityAndNewLogin:
         c = _client(super_token)
         r = c.post(f"{BASE_URL}/api/users", json=payload, timeout=20)
         assert r.status_code == 200
-        uid = r.json()["user_id"]
+        body = r.json()
+        user_obj = body["user"] if isinstance(body, dict) and "user" in body else body
+        uid = user_obj["user_id"]
         try:
+            # Activate via mongo direct (iteration 7 requires OTP verify before login)
+            import asyncio as _a
+            from motor.motor_asyncio import AsyncIOMotorClient as _M
+            envtxt = open("/app/backend/.env").read()
+            m_url = [l.split("=", 1)[1].strip().strip('"') for l in envtxt.splitlines() if l.startswith("MONGO_URL=")][0]
+            m_db = [l.split("=", 1)[1].strip().strip('"') for l in envtxt.splitlines() if l.startswith("DB_NAME=")][0]
+            async def _act():
+                cli = _M(m_url); await cli[m_db].users.update_one({"user_id": uid}, {"$set": {"pending_activation": False}}); cli.close()
+            _a.get_event_loop().run_until_complete(_act())
+
             lr = _login(requests.Session(), payload["username"], payload["password"])
             assert lr.status_code == 200
             new_token = lr.json()["session_token"]

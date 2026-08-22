@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { api } from "@/src/api";
 import { MultiSelect } from "@/src/components/MultiSelect";
+import { OtpSheet } from "@/src/components/OtpSheet";
 import { Status } from "@/src/components/Status";
 import { ConfirmSheet, Toast } from "@/src/components/Feedback";
 import { C } from "@/src/theme";
@@ -64,6 +65,14 @@ export function AccessPage({ token, user, onLog }: { token: string; user: User; 
   const [editing, setEditing] = useState<string | undefined>();
   const [form, setForm] = useState<FormState>(EMPTY);
   const [toDelete, setToDelete] = useState<User | null>(null);
+  const [otp, setOtp] = useState<{
+    open: boolean;
+    username: string;
+    whatsapp?: string;
+    provider?: string;
+    hint?: string | null;
+    userId?: string;
+  }>({ open: false, username: "" });
 
   const load = useCallback(async () => {
     setError("");
@@ -153,8 +162,19 @@ export function AccessPage({ token, user, onLog }: { token: string; user: User; 
       } else {
         payload.username = form.username.trim();
         payload.password = form.password;
-        await api("/users", { method: "POST", token, body: JSON.stringify(payload) });
-        setOk("User baru berhasil dibuat.");
+        const res = await api<{ user: User; otp: { code?: string | null; provider: string; delivered_to: string } }>(
+          "/users",
+          { method: "POST", token, body: JSON.stringify(payload) },
+        );
+        setOk("User baru dibuat. OTP dikirim ke WhatsApp untuk aktivasi.");
+        setOtp({
+          open: true,
+          username: res.user.username || "",
+          whatsapp: res.user.whatsapp,
+          provider: res.otp.provider,
+          hint: res.otp.code || null,
+          userId: res.user.user_id,
+        });
       }
       resetForm();
       await load();
@@ -410,6 +430,33 @@ export function AccessPage({ token, user, onLog }: { token: string; user: User; 
                   Akses: {item.access_start || "—"} → {item.access_end || "—"}
                 </Text>
               )}
+              {(item as any).pending_activation ? (
+                <Pressable
+                  testID={`resend-otp-${item.user_id}`}
+                  onPress={async () => {
+                    try {
+                      const res = await api<{ delivery: { code?: string | null; provider: string; delivered_to: string } }>(
+                        `/users/${item.user_id}/otp/resend`,
+                        { method: "POST", token },
+                      );
+                      setOtp({
+                        open: true,
+                        username: item.username || "",
+                        whatsapp: item.whatsapp,
+                        provider: res.delivery.provider,
+                        hint: res.delivery.code || null,
+                        userId: item.user_id,
+                      });
+                    } catch (e: any) {
+                      setError(e.message || "Gagal kirim ulang OTP");
+                    }
+                  }}
+                  style={s.pendingBadge}
+                >
+                  <Icon name="whatsapp" size={13} color="#25D366" />
+                  <Text style={s.pendingText}>PENDING OTP · KIRIM ULANG</Text>
+                </Pressable>
+              ) : null}
             </View>
             <View style={s.userActions}>
               <Pressable testID={`toggle-user-${item.user_id}`} onPress={() => toggle(item)} style={s.iconBtn}>
@@ -443,6 +490,28 @@ export function AccessPage({ token, user, onLog }: { token: string; user: User; 
           danger
           onConfirm={confirmDelete}
           onCancel={() => setToDelete(null)}
+        />
+        <OtpSheet
+          open={otp.open}
+          username={otp.username}
+          whatsapp={otp.whatsapp}
+          provider={otp.provider}
+          hint={otp.hint}
+          onClose={() => setOtp((o) => ({ ...o, open: false }))}
+          onVerified={async () => {
+            setOtp((o) => ({ ...o, open: false }));
+            setOk("Akun berhasil diaktivasi.");
+            await load();
+            onLog();
+          }}
+          onResend={async () => {
+            if (!otp.userId) return undefined;
+            const res = await api<{ delivery: { code?: string | null; provider: string } }>(
+              `/users/${otp.userId}/otp/resend`,
+              { method: "POST", token },
+            );
+            return { code: res.delivery.code || undefined, provider: res.delivery.provider };
+          }}
         />
       </ScrollView>
     </KeyboardAvoidingView>
@@ -535,4 +604,16 @@ const s = StyleSheet.create({
   userMeta: { color: C.amber, fontSize: 12, fontWeight: "700" },
   userActions: { justifyContent: "space-between", gap: 6 },
   iconBtn: { padding: 4 },
+  pendingBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: "#25D366",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    alignSelf: "flex-start",
+    marginTop: 4,
+  },
+  pendingText: { color: "#25D366", fontSize: 10, fontWeight: "900", letterSpacing: 0.5 },
 });

@@ -1,15 +1,19 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import asyncio
 import logging
 import os
+import random
+import secrets
 import uuid
 
 import httpx
 import jwt
 import bcrypt
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query
+from fastapi.responses import Response
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 from starlette.middleware.cors import CORSMiddleware
@@ -24,6 +28,23 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ["DB_NAME"]]
 JWT_SECRET = os.environ["JWT_SECRET"]
 EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+
+from services.wa import send_whatsapp  # noqa: E402
+from services.pdf import build_pdf  # noqa: E402
+
+OTP_TTL_MINUTES = int(os.environ.get("OTP_TTL_MINUTES", "10"))
+FEED_MESSAGES = [
+    "Scan buyer baru dari LinkedIn direktori",
+    "Menganalisis histori transaksi buyer",
+    "Menyusun profil demografi negara target",
+    "Menghitung margin produk unggulan",
+    "Menyusun materi kampanye email",
+    "Kirim follow-up ke 3 buyer prospek",
+    "Menyusun laporan aktivitas harian",
+    "Sinkronisasi data marketplace",
+    "Cek kepatuhan regulasi ekspor",
+    "Optimasi query database buyer",
+]
 
 ROLES = ["SUPER ADMIN", "ADMIN", "KARYAWAN"]
 ROLE_PATTERN = "^(SUPER ADMIN|ADMIN|KARYAWAN)$"
@@ -47,6 +68,15 @@ class ToggleRequest(BaseModel):
 
 class ServerAction(BaseModel):
     action: str = Field(pattern="^(on|off|restart)$")
+
+
+class OTPVerifyRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=40)
+    code: str = Field(min_length=4, max_length=8, pattern="^[0-9]+$")
+
+
+class OTPResendRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=40)
 
 
 class UserCreate(BaseModel):
@@ -196,6 +226,80 @@ async def issue_session(user_id: str) -> str:
     return token
 
 
+def generate_otp_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+async def issue_otp(user: Dict[str, Any], purpose: str = "activation") -> Dict[str, Any]:
+    """Store OTP + trigger WhatsApp send. Returns delivery info (safe for admin)."""
+    code = generate_otp_code()
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=OTP_TTL_MINUTES)
+    await db.otps.update_one(
+        {"user_id": user["user_id"], "purpose": purpose},
+        {"$set": {
+            "otp_id": uuid.uuid4().hex,
+            "user_id": user["user_id"],
+            "code_hash": hash_password(code),
+            "purpose": purpose,
+            "attempts": 0,
+            "expires_at": expires_at,
+            "created_at": datetime.now(timezone.utc),
+            "verified": False,
+        }},
+        upsert=True,
+    )
+    message = (
+        f"[Export 7 AI] Kode aktivasi akun Anda: {code}. "
+        f"Berlaku {OTP_TTL_MINUTES} menit. Jangan bagikan kepada siapa pun."
+    )
+    delivery = await send_whatsapp(db, user.get("whatsapp", ""), message, purpose="OTP")
+    return {
+        "delivered_to": delivery.get("to", ""),
+        "provider": delivery.get("provider", "mock"),
+        "status": delivery.get("status", "queued"),
+        "expires_at": expires_at.isoformat(),
+        # In mock/dev mode we surface the code so the admin can share it
+        # from the app itself without leaving the flow.
+        "code": code if delivery.get("provider", "mock") == "mock" else None,
+    }
+
+
+async def _generate_feed_events():
+    """Background task: emit synthetic activity for enabled AIs every ~4s."""
+    await asyncio.sleep(3)
+    while True:
+        try:
+            enabled = await db.ai_agents.find({"enabled": True}, {"_id": 0}).to_list(20)
+            server = await db.server_state.find_one({}, {"_id": 0})
+            if enabled and server and server.get("server_online"):
+                ai = random.choice(enabled)
+                message = random.choice(FEED_MESSAGES)
+                level = random.choices(["info", "success", "warning"], weights=[70, 20, 10])[0]
+                now = datetime.now(timezone.utc)
+                event = {
+                    "event_id": uuid.uuid4().hex,
+                    "agent_id": ai["agent_id"],
+                    "agent_name": ai["name"],
+                    "level": level,
+                    "message": message,
+                    "created_at": now.isoformat(),
+                }
+                await db.ai_events.insert_one(event.copy())
+                await db.ai_agents.update_one(
+                    {"agent_id": ai["agent_id"]},
+                    {"$set": {"last_activity": f"{message} · {now.strftime('%H:%M:%S')}", "job_status": "Berjalan"}},
+                )
+                # Trim old events to keep collection small
+                total = await db.ai_events.count_documents({})
+                if total > 500:
+                    oldest = await db.ai_events.find({}, {"event_id": 1}).sort("created_at", 1).to_list(total - 500)
+                    if oldest:
+                        await db.ai_events.delete_many({"event_id": {"$in": [o["event_id"] for o in oldest]}})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("feed generator error: %s", exc)
+        await asyncio.sleep(random.uniform(3.5, 5.5))
+
+
 @app.on_event("startup")
 async def seed_database():
     await db.ai_agents.create_index("agent_id", unique=True)
@@ -247,7 +351,11 @@ async def seed_database():
                 "access_start": None, "access_end": None,
                 "password_hash": hash_password(seed["password"]),
                 "auth_provider": "password",
+                "pending_activation": False,
             })
+    # Kick off background feed generator (idempotent — only starts once)
+    if not getattr(app.state, "_feed_task", None):
+        app.state._feed_task = asyncio.create_task(_generate_feed_events())
 
 
 @api.get("/health")
@@ -262,9 +370,53 @@ async def login(payload: LoginRequest):
         raise HTTPException(401, "Username atau password salah")
     if user.get("enabled") is False:
         raise HTTPException(403, "Akun ini dinonaktifkan")
+    if user.get("pending_activation"):
+        raise HTTPException(
+            403,
+            "Akun belum diaktivasi. Masukkan kode OTP yang dikirim ke WhatsApp Anda.",
+        )
     token = await issue_session(user["user_id"])
     await audit(user, "LOGIN", f"Login username/password: {user['username']}")
     return {"session_token": token, "user": public_user(user)}
+
+
+@api.post("/auth/verify-otp")
+async def verify_otp(payload: OTPVerifyRequest):
+    user = await db.users.find_one({"username": payload.username})
+    if not user:
+        raise HTTPException(404, "User tidak ditemukan")
+    otp = await db.otps.find_one({"user_id": user["user_id"], "purpose": "activation"})
+    if not otp:
+        raise HTTPException(404, "OTP tidak ditemukan. Minta OTP baru.")
+    if otp.get("verified"):
+        raise HTTPException(400, "OTP sudah pernah digunakan.")
+    expires_at = otp["expires_at"]
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(400, "OTP sudah kedaluwarsa. Minta OTP baru.")
+    if otp.get("attempts", 0) >= 5:
+        raise HTTPException(429, "Percobaan OTP melebihi batas. Minta OTP baru.")
+    if not verify_password(payload.code, otp["code_hash"]):
+        await db.otps.update_one({"otp_id": otp["otp_id"]}, {"$inc": {"attempts": 1}})
+        raise HTTPException(401, "Kode OTP salah")
+    await db.otps.update_one({"otp_id": otp["otp_id"]}, {"$set": {"verified": True}})
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"pending_activation": False}})
+    user["pending_activation"] = False
+    token = await issue_session(user["user_id"])
+    await audit(user, "OTP_VERIFIED", f"Aktivasi akun {user['username']} berhasil")
+    return {"session_token": token, "user": public_user(user)}
+
+
+@api.post("/auth/resend-otp")
+async def resend_otp(payload: OTPResendRequest):
+    user = await db.users.find_one({"username": payload.username})
+    if not user:
+        raise HTTPException(404, "User tidak ditemukan")
+    if not user.get("pending_activation"):
+        raise HTTPException(400, "Akun sudah aktif. Tidak perlu OTP.")
+    delivery = await issue_otp(user, purpose="activation")
+    return {"delivery": delivery, "message": "OTP baru telah dikirim ke WhatsApp."}
 
 
 @api.post("/auth/session")
@@ -356,6 +508,22 @@ async def bulk_ai(payload: ToggleRequest, user=Depends(require_roles("SUPER ADMI
     return await db.ai_agents.find({}, {"_id": 0}).to_list(20)
 
 
+@api.get("/ai/feed")
+async def ai_feed(
+    user=Depends(current_user),
+    since: Optional[str] = Query(default=None),
+    agent_id: Optional[str] = Query(default=None),
+    limit: int = Query(default=40, ge=1, le=200),
+):
+    query: Dict[str, Any] = {}
+    if since:
+        query["created_at"] = {"$gt": since}
+    if agent_id:
+        query["agent_id"] = agent_id
+    events = await db.ai_events.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    return list(reversed(events))
+
+
 @api.get("/countries")
 async def list_countries(user=Depends(current_user)):
     return await db.countries.find({}, {"_id": 0}).sort("name", 1).to_list(500)
@@ -417,9 +585,41 @@ async def interrogation(user=Depends(current_user)):
     return report
 
 
+@api.post("/interrogation/pdf")
+async def interrogation_pdf(
+    user=Depends(current_user),
+    mode: str = Query(default="summary", pattern="^(summary|detailed)$"),
+):
+    report = await interrogation(user)
+    logs: List[Dict[str, Any]] = []
+    if mode == "detailed":
+        since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        logs = await db.audit_logs.find(
+            {"created_at": {"$gte": since}},
+            {"_id": 0},
+        ).sort("created_at", -1).to_list(200)
+    pdf_bytes = build_pdf(mode, report, user, logs)
+    await audit(user, "REPORT_EXPORT", f"PDF {mode} ({len(pdf_bytes)} bytes)")
+    filename = f"export7ai-{mode}-{datetime.now().strftime('%Y%m%d-%H%M')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Report-Mode": mode,
+        },
+    )
+
+
 @api.get("/activity")
 async def activity(user=Depends(current_user)):
     return await db.audit_logs.find({}, {"_id": 0}).sort("created_at", -1).to_list(50)
+
+
+@api.get("/otp/outbox")
+async def otp_outbox(user=Depends(require_roles("SUPER ADMIN", "ADMIN")), limit: int = Query(default=20, ge=1, le=100)):
+    """Return the last WA messages (mock or real) with their status."""
+    return await db.mock_wa_outbox.find({}, {"_id": 0}).sort("created_at", -1).to_list(limit)
 
 
 @api.get("/users")
@@ -440,10 +640,24 @@ async def create_user(payload: UserCreate, user=Depends(require_roles("SUPER ADM
         "user_id": f"user_{uuid.uuid4().hex[:12]}",
         "password_hash": hash_password(payload.password),
         "auth_provider": "password",
+        "pending_activation": True,
     })
     await db.users.insert_one(record.copy())
-    await audit(user, "USER_CREATE", f"{payload.username} ({payload.role})")
-    return public_user(record)
+    delivery = await issue_otp(record, purpose="activation")
+    await audit(user, "USER_CREATE", f"{payload.username} ({payload.role}) — OTP dikirim ke WA")
+    return {"user": public_user(record), "otp": delivery}
+
+
+@api.post("/users/{user_id}/otp/resend")
+async def resend_user_otp(user_id: str, user=Depends(require_roles("SUPER ADMIN", "ADMIN"))):
+    target = await db.users.find_one({"user_id": user_id})
+    if not target:
+        raise HTTPException(404, "User tidak ditemukan")
+    if not target.get("pending_activation"):
+        raise HTTPException(400, "User sudah aktif — OTP tidak perlu dikirim ulang.")
+    delivery = await issue_otp(target, purpose="activation")
+    await audit(user, "OTP_RESEND", f"OTP dikirim ulang untuk {target.get('username')}")
+    return {"delivery": delivery}
 
 
 @api.patch("/users/{user_id}")

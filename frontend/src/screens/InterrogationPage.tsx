@@ -5,6 +5,7 @@ import { api } from "@/src/api";
 import { Toast } from "@/src/components/Feedback";
 import { C } from "@/src/theme";
 import { InterrogationResult, User } from "@/src/types";
+import { downloadPdf } from "@/src/utils/download";
 
 const TONE: Record<string, "ok" | "warn" | "error"> = {
   OK: "ok",
@@ -32,6 +33,25 @@ export function InterrogationPage({ token, user, onLog }: { token: string; user:
   const [result, setResult] = useState<InterrogationResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [ok, setOk] = useState("");
+  const [exporting, setExporting] = useState<"summary" | "detailed" | "">("");
+
+  const exportPdf = async (mode: "summary" | "detailed") => {
+    if (exporting) return;
+    setExporting(mode);
+    setError("");
+    setOk("");
+    try {
+      const filename = `export7ai-${mode}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "")}.pdf`;
+      const res = await downloadPdf(`/interrogation/pdf?mode=${mode}`, token, filename);
+      setOk(`PDF ${mode} berhasil disiapkan (${res.method === "web" ? "unduh browser" : "tersimpan"}).`);
+      onLog();
+    } catch (e: any) {
+      setError(e.message || "Gagal mengunduh PDF");
+    } finally {
+      setExporting("");
+    }
+  };
 
   const run = async () => {
     if (busy) return;
@@ -72,6 +92,7 @@ export function InterrogationPage({ token, user, onLog }: { token: string; user:
       </Pressable>
 
       {error ? <Toast message={error} tone="error" /> : null}
+      {ok ? <Toast message={ok} tone="success" /> : null}
 
       {result && (
         <View style={s.card} testID="interrogation-result">
@@ -101,6 +122,49 @@ export function InterrogationPage({ token, user, onLog }: { token: string; user:
           <Text style={[s.section, { marginTop: 12 }]}>ERROR TERAKHIR</Text>
           <Text style={s.body}>{result.last_error}</Text>
           <Text style={s.muted}>Diperiksa: {new Date(result.checked_at).toLocaleString("id-ID")}</Text>
+
+          <Text style={[s.section, { marginTop: 16 }]}>UNDUH LAPORAN PDF</Text>
+          <View style={s.exportRow}>
+            <Pressable
+              testID="export-summary"
+              style={[s.exportBtn, exporting === "summary" && { opacity: 0.6 }]}
+              onPress={() => exportPdf("summary")}
+              disabled={!!exporting}
+            >
+              {exporting === "summary" ? (
+                <ActivityIndicator color={C.amber} />
+              ) : (
+                <>
+                  <Icon name="file-pdf-box" size={22} color={C.amber} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.exportTitle}>RINGKAS · 1 HALAMAN</Text>
+                    <Text style={s.muted}>Status server + 7 AI + counter job</Text>
+                  </View>
+                </>
+              )}
+            </Pressable>
+            <Pressable
+              testID="export-detailed"
+              style={[s.exportBtn, exporting === "detailed" && { opacity: 0.6 }]}
+              onPress={() => exportPdf("detailed")}
+              disabled={!!exporting}
+            >
+              {exporting === "detailed" ? (
+                <ActivityIndicator color={C.amber} />
+              ) : (
+                <>
+                  <Icon name="file-document-multiple-outline" size={22} color={C.amber} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.exportTitle}>DETAIL · 24 JAM</Text>
+                    <Text style={s.muted}>Ringkasan + audit log 24 jam</Text>
+                  </View>
+                </>
+              )}
+            </Pressable>
+          </View>
+          <Text style={s.muted}>
+            PDF dilengkapi header Export 7 AI + tanda tangan digital: {user.name} · {user.role}
+          </Text>
         </View>
       )}
     </ScrollView>
@@ -139,4 +203,14 @@ const s = StyleSheet.create({
   metricLabel: { color: C.muted, fontSize: 10, letterSpacing: 1, fontWeight: "800" },
   metricValue: { color: C.text, fontSize: 16, fontWeight: "900", marginTop: 4 },
   body: { color: C.text, fontSize: 14 },
+  exportRow: { gap: 8 },
+  exportBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: C.amber,
+    padding: 12,
+  },
+  exportTitle: { color: C.amber, fontSize: 12, fontWeight: "900", letterSpacing: 0.5 },
 });
