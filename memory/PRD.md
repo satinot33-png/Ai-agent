@@ -25,10 +25,12 @@ Aplikasi mobile berbahasa Indonesia untuk memantau dan mengendalikan server/back
 - Backend FastAPI dengan seed tujuh AI, daftar negara, telemetry server, session exchange, RBAC, audit log, dan endpoint control center.
 - Frontend dark-first command center dengan Google login, secure session persistence, drawer navigation, dashboard, AI controls, country selector, server controls with confirmation, and diagnostics.
 - UI mengikuti panduan amber/rust operational cards, status indicators, responsive mobile spacing, dan MaterialCommunityIcons.
+- Pembaruan: CRUD Akses User tersimpan di MongoDB dengan bcrypt password hashing, status user ON/OFF, role Admin/Operator/User, dan kontrol edit/hapus.
+- Pembaruan: toggle individual serta AKTIFKAN/MATIKAN SEMUA AI memakai endpoint backend dan status tetap persisten setelah refresh; modul live-data menampilkan error dan tombol refresh.
 
 ## Prioritized backlog
 - P0: Hubungkan adapter telemetry dan action ke server/AI production nyata; set `SUPER_ADMIN_EMAILS` dan `JWT_SECRET` production.
-- P1: Implementasikan halaman Akses/User dan Pengaturan dengan permission matrix server-side.
+- P1: Lengkapi permission matrix server-side untuk Akses/User dan Pengaturan.
 - P1: Tambahkan push notifications untuk error dan perubahan status.
 - P2: Tambahkan konfigurasi nama/fungsi AI dari backend dan dashboard histori metrik.
 - P2: Tambahkan OpenAI hanya untuk fitur operasi yang didefinisikan; API key wajib tetap di backend.

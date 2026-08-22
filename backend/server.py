@@ -7,6 +7,7 @@ import uuid
 
 import httpx
 import jwt
+import bcrypt
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -38,6 +39,25 @@ class ToggleRequest(BaseModel):
 
 class ServerAction(BaseModel):
     action: str = Field(pattern="^(on|off|restart)$")
+
+
+class UserCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    username: str = Field(min_length=3, max_length=40, pattern="^[a-zA-Z0-9_.-]+$")
+    password: str = Field(min_length=8, max_length=128)
+    role: str = Field(pattern="^(Admin|Operator|User)$")
+    country: str = Field(min_length=2, max_length=80)
+    province: str = Field(min_length=2, max_length=80)
+    enabled: bool = True
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    password: Optional[str] = Field(default=None, min_length=8, max_length=128)
+    role: Optional[str] = Field(default=None, pattern="^(Admin|Operator|User)$")
+    country: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    province: Optional[str] = Field(default=None, min_length=2, max_length=80)
+    enabled: Optional[bool] = None
 
 
 AI_SEED = [
@@ -76,7 +96,8 @@ async def current_user(authorization: Optional[str] = Header(default=None)) -> D
 
 def require_roles(*roles: str):
     async def dependency(user: Dict[str, Any] = Depends(current_user)):
-        if user.get("role") not in roles:
+        allowed = {role.upper() for role in roles}
+        if str(user.get("role", "")).upper() not in allowed:
             raise HTTPException(403, "Anda tidak memiliki izin untuk tindakan ini")
         return user
     return dependency
@@ -173,6 +194,13 @@ async def toggle_ai(agent_id: str, payload: ToggleRequest, user=Depends(require_
     return await db.ai_agents.find_one({"agent_id": agent_id}, {"_id": 0})
 
 
+@api.post("/ai/bulk")
+async def bulk_ai(payload: ToggleRequest, user=Depends(require_roles("SUPER ADMIN", "ADMIN"))):
+    await db.ai_agents.update_many({}, {"$set": {"enabled": payload.enabled, "job_status": "Idle"}})
+    await audit(user, "AI_BULK_TOGGLE", f"Semua AI → {'ON' if payload.enabled else 'OFF'}")
+    return await db.ai_agents.find({}, {"_id": 0}).to_list(20)
+
+
 @api.get("/countries")
 async def list_countries(user=Depends(current_user)):
     return await db.countries.find({}, {"_id": 0}).to_list(300)
@@ -219,9 +247,61 @@ async def activity(user=Depends(current_user)):
     return await db.audit_logs.find({}, {"_id": 0}).sort("created_at", -1).to_list(50)
 
 
+def public_user(user: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: value for key, value in user.items() if key not in {"_id", "password_hash"}}
+
+
 @api.get("/users")
-async def users(user=Depends(require_roles("SUPER ADMIN"))):
-    return await db.users.find({}, {"_id": 0}).to_list(100)
+async def users(user=Depends(require_roles("SUPER ADMIN", "ADMIN"))):
+    records = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(100)
+    return records
+
+
+@api.post("/users")
+async def create_user(payload: UserCreate, user=Depends(require_roles("SUPER ADMIN", "ADMIN"))):
+    if await db.users.find_one({"username": payload.username}, {"_id": 0}):
+        raise HTTPException(409, "Username sudah digunakan")
+    record = payload.model_dump(exclude={"password"})
+    record.update({"user_id": f"user_{uuid.uuid4().hex[:12]}", "password_hash": bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode()})
+    await db.users.insert_one(record.copy())
+    await audit(user, "USER_CREATE", payload.username)
+    return public_user(record)
+
+
+@api.patch("/users/{user_id}")
+async def update_user(user_id: str, payload: UserUpdate, user=Depends(require_roles("SUPER ADMIN", "ADMIN"))):
+    updates = payload.model_dump(exclude_none=True)
+    password = updates.pop("password", None)
+    if password:
+        updates["password_hash"] = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    if updates.get("role") == "Admin" and user.get("role") != "SUPER ADMIN":
+        raise HTTPException(403, "Hanya SUPER ADMIN yang dapat memberikan role Admin")
+    result = await db.users.update_one({"user_id": user_id}, {"$set": updates})
+    if not result.matched_count:
+        raise HTTPException(404, "User tidak ditemukan")
+    record = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+    await audit(user, "USER_UPDATE", user_id)
+    return record
+
+
+@api.patch("/users/{user_id}/status")
+async def toggle_user_status(user_id: str, payload: ToggleRequest, user=Depends(require_roles("SUPER ADMIN", "ADMIN"))):
+    result = await db.users.update_one({"user_id": user_id}, {"$set": {"enabled": payload.enabled}})
+    if not result.matched_count:
+        raise HTTPException(404, "User tidak ditemukan")
+    await audit(user, "USER_STATUS", f"{user_id} → {'ON' if payload.enabled else 'OFF'}")
+    return await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+
+
+@api.delete("/users/{user_id}")
+async def delete_user(user_id: str, user=Depends(require_roles("SUPER ADMIN", "ADMIN"))):
+    if user_id == user.get("user_id"):
+        raise HTTPException(400, "Akun yang sedang digunakan tidak dapat dihapus")
+    result = await db.users.delete_one({"user_id": user_id})
+    if not result.deleted_count:
+        raise HTTPException(404, "User tidak ditemukan")
+    await audit(user, "USER_DELETE", user_id)
+    return {"deleted": True}
 
 
 app.include_router(api)
