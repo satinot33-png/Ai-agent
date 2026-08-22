@@ -1,62 +1,61 @@
 # Export 7 AI — Control Center
 
-Mobile control panel (Expo + FastAPI + MongoDB) untuk mengendalikan 7 AI ekspor + server dari satu tempat. Frontend hanya remote-control; semua kredensial di backend.
+Mobile control panel (Expo + FastAPI + MongoDB) untuk mengendalikan 7 AI ekspor + server dari satu tempat.
 
 ## Fitur
-- **Auth**: Username/password JWT bcrypt, Google OAuth via Emergent, OTP WhatsApp aktivasi.
-- **Dashboard**: Status server, metrik, ringkasan 7 AI, negara target, **Chart tren job 7 hari (sukses vs gagal)**, aktivitas.
-- **7 AI + Live Feed**: Toggle ON/OFF (RBAC), Live Feed polling 3 detik dengan pulse pause/resume.
-- **Pilih Negara**: 48 negara, search + region filter, toggle per-negara + bulk.
-- **Server**: Metrik + ON/OFF/RESTART dengan konfirmasi bottom-sheet.
-- **Interogasi Server**: OK/WARNING/ERROR + **Unduh PDF** (ringkas/detail) + **Kirim ke Email** (penerima terdaftar, PDF attachment).
-- **Akses / User**: Form lengkap + OTP WhatsApp aktivasi + kirim ulang.
-- **Pengaturan**: Profil, audit log 50 aktivitas terakhir.
+- **Auth**: Username/password JWT bcrypt, Google OAuth, WhatsApp OTP aktivasi.
+- **Dashboard**: 
+  - **Alert Banner** merah muncul saat ada error/warning AI 5 menit terakhir (polling 15 s).
+  - Metrik server + tren job bar chart 7 hari.
+  - **Peta Dunia** SVG dengan lampu amber di setiap negara aktif, dikelompokkan per region.
+  - Aktivitas terbaru.
+- **7 AI + Live Feed**: Toggle ON/OFF (RBAC), Live Feed 3 detik, level info/success/warning/error.
+- **Pilih Negara**: 48 negara + lat/lng, search + region filter, toggle per-negara + bulk.
+- **Server**: Metrik + ON/OFF/RESTART dengan konfirmasi.
+- **Interogasi Server**: OK/WARNING/ERROR + Unduh PDF + Kirim ke Email (guardrail-compliant).
+- **Akses / User**: Form lengkap + OTP WhatsApp aktivasi.
+- **Pengaturan**: Profil, **Widget Preview** untuk Home Screen (perlu build native), audit log.
 
 ## Integrasi
 | Integrasi | Provider | Status |
 |---|---|---|
 | Auth | Emergent Google OAuth + JWT+bcrypt lokal | Live |
-| WhatsApp OTP | Mock (default) / Fonnte / Twilio | Adapter siap |
-| Email PDF | Emergent-managed Resend | Live (guardrail-compliant) |
-| PDF Report | reportlab (lokal) | Live |
+| WhatsApp OTP | Mock / Fonnte / Twilio | Adapter siap |
+| Email PDF | Emergent-managed Resend | Live (guardrail) |
+| PDF Report | reportlab | Live |
+| SVG Chart & Map | react-native-svg | Live |
+| Widget Home | JSON endpoint (native build required) | Endpoint siap |
 
 ## Env (Backend)
-| Variable | Default | Deskripsi |
-|---|---|---|
-| `MONGO_URL` / `DB_NAME` | local | database |
-| `JWT_SECRET` | (dev) | secret |
-| `SUPER_ADMIN_EMAILS` | — | Google email → SUPER ADMIN |
-| `WA_PROVIDER` | `mock` | `mock` \| `fonnte` \| `twilio` |
-| `WA_FONNTE_TOKEN` / `WA_TWILIO_*` | — | provider WA |
-| `OTP_TTL_MINUTES` | 10 | masa berlaku OTP |
-| `EMERGENT_EMAIL_KEY` | (auto) | key Resend proxy |
-| `EMAIL_FROM_NAME` | `Export 7 AI` | display sender |
-| `EMAIL_REPLY_TO` | — | reply-to opsional |
+Lihat versi sebelumnya. Baru: tidak ada — semua env sama.
 
 ## Endpoint utama
-- `POST /api/auth/login|session|verify-otp|resend-otp|logout` · `GET /api/auth/me`
-- `GET /api/dashboard` (kini termasuk `job_stats`) · `GET /api/stats/jobs?days=`
-- `GET/PATCH/POST /api/ai(/bulk)` · `GET /api/ai/feed`
-- `GET/PATCH/POST /api/countries(/bulk)` · `GET /api/provinces`
-- `GET/POST /api/server(/action)`
-- `POST /api/interrogation(/pdf|/email)`
-- `GET/POST/DELETE /api/settings/recipients`
-- `GET/POST/PATCH/DELETE /api/users` · `POST /api/users/{id}/otp/resend`
-- `GET /api/otp/outbox` (admin) · `GET /api/activity`
+Baru di iterasi ini:
+- `GET /api/alerts?minutes=1..60` — error/warning terakhir per window
+- `GET /api/widget/status` — payload compact untuk widget iOS/Android
+
+Semua endpoint lama tetap: `/api/dashboard`, `/api/ai(/bulk|/feed)`, `/api/countries(/bulk)`, `/api/provinces`, `/api/server(/action)`, `/api/interrogation(/pdf|/email)`, `/api/settings/recipients`, `/api/users(/status|/otp/resend)`, `/api/auth/*`, `/api/stats/jobs`, `/api/otp/outbox`, `/api/activity`.
 
 ## Frontend struktur
 ```
 src/
 ├── ControlCenter.tsx, api.ts, types.ts, theme.ts
 ├── components/  Header, Drawer, Status, MultiSelect, Feedback,
-│                OtpSheet, JobTrendChart, EmailReportSheet
-├── screens/     Login, Dashboard (+chart), AIPage (+live feed),
-│                CountryPage, ServerPage,
-│                InterrogationPage (+PDF + Email), AccessPage, SettingsPage
+│                OtpSheet, JobTrendChart, EmailReportSheet,
+│                WorldMap, AlertBanner, WidgetPreview
+├── screens/     Login, Dashboard (+alert +chart +map),
+│                AIPage (+live feed), CountryPage, ServerPage,
+│                InterrogationPage (+PDF +Email), AccessPage,
+│                SettingsPage (+widget preview)
 └── utils/       download.ts (PDF share)
 ```
 
+## Widget Native Setup (post-Publish)
+1. User klik Publish → Deploy → Generate iOS / Android build.
+2. Widget iOS (WidgetKit) & Android (AppWidget) memanggil `GET /api/widget/status` dengan token pengguna.
+3. Refresh interval: iOS ~30 menit (Timeline), Android via WorkManager 30 menit.
+
 ## Testing
-- Iter 6: 29/29 · Iter 7: 46/46 · Iter 8: 32/32 · Semua E2E frontend hijau.
+- Iter 6: 29/29 · Iter 7: 46/46 · Iter 8: 32/32 · Iter 9: 42/42 · Semua E2E frontend hijau.
 
 Test credentials: `/app/memory/test_credentials.md`.

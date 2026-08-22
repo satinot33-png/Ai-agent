@@ -1,14 +1,23 @@
 import { MaterialCommunityIcons as Icon } from "@expo/vector-icons";
 import React from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AlertBanner } from "@/src/components/AlertBanner";
 import { JobTrendChart, JobStat } from "@/src/components/JobTrendChart";
 import { Status } from "@/src/components/Status";
+import { WorldMap } from "@/src/components/WorldMap";
 import { AI_ICONS, C, Screen } from "@/src/theme";
 import { DashboardData } from "@/src/types";
 
-export function Dashboard({ data, go }: { data: DashboardData & { job_stats?: JobStat[] }; go: (s: Screen) => void }) {
+export function Dashboard({
+  data,
+  go,
+  token,
+}: {
+  data: DashboardData & { job_stats?: JobStat[] };
+  go: (s: Screen) => void;
+  token: string;
+}) {
   const active = data.ais.filter((x) => x.enabled).length;
-  const activeCountries = data.countries.filter((c) => c.enabled);
   const metrics: [string, string][] = [
     ["CPU", `${data.server.cpu}%`],
     ["RAM", `${data.server.ram}%`],
@@ -19,6 +28,7 @@ export function Dashboard({ data, go }: { data: DashboardData & { job_stats?: Jo
   ];
   return (
     <ScrollView contentContainerStyle={s.content} testID="dashboard-scroll">
+      <AlertBanner token={token} onOpen={() => go("7 AI")} />
       <Text style={s.kicker}>OVERVIEW / LIVE</Text>
       <View style={s.titleRow}>
         <View style={{ flex: 1 }}>
@@ -71,22 +81,12 @@ export function Dashboard({ data, go }: { data: DashboardData & { job_stats?: Jo
       </View>
 
       <View style={s.titleRow}>
-        <Text style={s.section}>TARGET NEGARA ({activeCountries.length})</Text>
+        <Text style={s.section}>TARGET NEGARA</Text>
         <Pressable testID="go-country" onPress={() => go("Pilih Negara")}>
           <Text style={s.link}>UBAH →</Text>
         </Pressable>
       </View>
-      <View style={s.wrap}>
-        {activeCountries.length === 0 ? (
-          <Text style={s.muted}>Belum ada negara aktif.</Text>
-        ) : (
-          activeCountries.slice(0, 20).map((c) => (
-            <View style={s.chip} key={c.code}>
-              <Text style={s.chipText}>{c.name}</Text>
-            </View>
-          ))
-        )}
-      </View>
+      <WorldMap countries={data.countries} />
 
       <Text style={s.section}>AKTIVITAS TERBARU</Text>
       {data.logs.length === 0 ? (

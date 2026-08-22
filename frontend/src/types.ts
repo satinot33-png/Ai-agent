@@ -31,6 +31,8 @@ export type Country = {
   name: string;
   region: string;
   enabled: boolean;
+  lat?: number;
+  lng?: number;
 };
 
 export type Province = {

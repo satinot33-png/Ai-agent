@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 9 (WorldMap + AlertBanner + WidgetPreview) fully verified. Backend: 10/10 new iteration-9 tests pass + 32/32 iteration-7 & iteration-8 regression pass (42/42 combined). GET /api/countries now returns lat/lng floats for every country; PATCH /api/countries/{code} persists 'enabled' correctly and countries remained after re-GET (idempotent seed). GET /api/alerts default minutes=5 shape verified (window_minutes, error_count, warning_count, latest, events[max 10]); minutes=60 accepted; minutes=0 -> 422; minutes=61 -> 422; every returned event has level in {error,warning}. Feed generator emitted error/warning events within ~40s (test observed 1 error + 8 warnings in a 5-minute window). GET /api/widget/status returns all required keys (user_id, server_online:bool, active_ai:'7/7', jobs_today.successful/failed:int, active_jobs:int, recent_errors:int, generated_at:iso). Both /api/alerts and /api/widget/status return 401 without bearer token. Frontend E2E (390x844): superadmin login → Dashboard shows WorldMap (testID='world-map') with 6 region pills 'Asia · 7', 'Oseania · 1', 'Amerika · 4', 'Eropa · 4', 'Timur Tengah · 2', 'Afrika · 3'. Toggling off ZA + US via country-row-ZA / country-row-US in Pilih Negara and returning to Dashboard shrank Amerika 4→3 and Afrika 3→2 pill counts (live map update confirmed). AlertBanner (testID='alert-banner') appeared within ~30s showing '1 ERROR · 8 WARNING · 5 MENIT TERAKHIR' with latest event text 'AI 2 · ERROR — Menyusun profil demografi …' and 'Tap untuk lihat 7 AI · Live Feed'; alert-dismiss button hides banner (verified via is_visible=false after click). Pengaturan → WidgetPreview (testID='widget-preview') renders EXPORT 7 AI card with '7/7 AI AKTIF', '3 JOB AKTIF', '107 JOB HARI INI', 'SERVER ONLINE' status, '4 error 5 mnt terakhir' recent-errors line, and native-build hint referencing /api/widget/status. widget-refresh button re-fetches without error and updates the same widget content. Cleanup: two toggled countries restored back to enabled. No React Native red screens; only benign shadow*/boxShadow deprecation warning from styled-components in the web preview.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration9.py",
+    "/app/backend/tests/test_iteration8.py",
+    "/app/backend/tests/test_iteration7.py",
+    "/app/test_reports/pytest/pytest_iter9.xml",
+    "/app/test_reports/iter9_login.jpeg",
+    "/app/test_reports/iter9_dashboard.jpeg",
+    "/app/test_reports/iter9_dashboard_after_alert.jpeg",
+    "/app/test_reports/iter9_settings.jpeg",
+    "/app/test_reports/iter9_widget.jpeg"
+  ],
+  "action_items": [
+    "(Optional / non-blocking) Web preview logs a React Native web deprecation warning 'shadow* style props are deprecated. Use boxShadow.' — this comes from RN web internals but you may want to migrate any custom shadow styles in WorldMap / AlertBanner / WidgetPreview to boxShadow for cleanliness."
+  ],
+  "critical_code_review_comments": [
+    "server.py::alerts uses ge=1, le=60 on FastAPI Query — clean 422 boundaries at 0 and 61.",
+    "server.py::alerts filters {level: {$in: ['error','warning']}} at Mongo level and re-partitions error_count/warning_count in memory — response events are guaranteed to only contain those two levels.",
+    "server.py::widget_status computes active_ai from ai_agents.enabled and recent_errors from ai_events level=error within 5 minutes — matches spec.",
+    "server.py country seed sync uses $set on {name, region, lat, lng} and $setOnInsert on {enabled:code==ID} so restart never overwrites the 'enabled' flag once set — verified idempotent via PATCH → GET.",
+    "_generate_feed_events emits error with 5% weight (weights=[62,22,11,5]) and prefixes the message with 'ERROR — ' — spec-compliant.",
+    "Frontend WorldMap, AlertBanner, WidgetPreview each expose the required testIDs (world-map, region-pill-<region>, alert-banner, alert-dismiss, widget-preview, widget-refresh).",
+    "react-native-svg 15.12.1 renders SVG dots inside Dashboard on web preview without any red screen or metro error."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration9.py",
+    "/app/test_reports/pytest/pytest_iter9.xml",
+    "/app/test_reports/iteration_9.json",
+    "/app/test_reports/iter9_login.jpeg",
+    "/app/test_reports/iter9_dashboard.jpeg",
+    "/app/test_reports/iter9_dashboard_after_alert.jpeg",
+    "/app/test_reports/iter9_settings.jpeg",
+    "/app/test_reports/iter9_widget.jpeg"
+  ],
+  "success_rate": {"backend": "100% (10/10 iter9 + 32/32 iter7+iter8 regression)", "frontend": "100% (WorldMap dots+pills, live country toggle refresh, AlertBanner appear+dismiss, WidgetPreview render+refresh)"},
+  "seed_data_creation": "No new persisted seed data. Two countries (ZA, US) were toggled off during E2E for the live-refresh assertion and immediately restored to enabled at end of the run. Seed users superadmin/admin/karyawan untouched. Pytest cleanup fixture from iter8 still deletes TEST_-prefixed recipients.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend at https://ai-management-hub-8.preview.emergentagent.com. Full regression command: `EXPO_BACKEND_URL=<preview> python -m pytest backend/tests/test_iteration7.py backend/tests/test_iteration8.py backend/tests/test_iteration9.py -o addopts=''`. Iteration-9 file (test_iteration9.py) covers: countries lat/lng shape + PATCH persistence, /api/alerts default+60+422 boundaries + level filter + shape, feed-generator error/warning emission wait loop (~40s), /api/widget/status shape + 401 without bearer. New frontend testIDs used: world-map, region-pill-<region> (region names: Asia, Oseania, Amerika, Eropa, Timur Tengah, Afrika), alert-banner, alert-dismiss, widget-preview, widget-refresh, country-row-<code> (48 rows visible), menu-Pilih Negara / menu-Dashboard / menu-Pengaturan for drawer navigation, open-drawer for menu button. AlertBanner polls /api/alerts every 15s; WidgetPreview polls /api/widget/status every 30s (verified). Web preview logs benign 'shadow* style props deprecated' warnings from RN web — safe to ignore.",
+  "rca_of_issue": "N/A — no bugs found. All 10 iteration-9 endpoints behave per spec; 32 iteration-7 & iteration-8 regression tests still pass; all three new frontend components render, poll, and update correctly on the 390x844 mobile viewport with the exact testIDs specified in the review request."
+}

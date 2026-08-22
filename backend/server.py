@@ -127,30 +127,55 @@ AI_SEED = [
     ("AI 5", "Marketing"), ("AI 6", "Follow Up"), ("AI 7", "Laporan"),
 ]
 COUNTRIES = [
-    ("ID", "Indonesia", "Asia"), ("MY", "Malaysia", "Asia"),
-    ("SG", "Singapura", "Asia"), ("TH", "Thailand", "Asia"),
-    ("VN", "Vietnam", "Asia"), ("PH", "Filipina", "Asia"),
-    ("JP", "Jepang", "Asia"), ("KR", "Korea Selatan", "Asia"),
-    ("CN", "Tiongkok", "Asia"), ("IN", "India", "Asia"),
-    ("PK", "Pakistan", "Asia"), ("BD", "Bangladesh", "Asia"),
-    ("AU", "Australia", "Oseania"), ("NZ", "Selandia Baru", "Oseania"),
-    ("US", "Amerika Serikat", "Amerika"), ("CA", "Kanada", "Amerika"),
-    ("MX", "Meksiko", "Amerika"), ("BR", "Brasil", "Amerika"),
-    ("AR", "Argentina", "Amerika"), ("CL", "Chili", "Amerika"),
-    ("GB", "Inggris", "Eropa"), ("DE", "Jerman", "Eropa"),
-    ("FR", "Prancis", "Eropa"), ("IT", "Italia", "Eropa"),
-    ("ES", "Spanyol", "Eropa"), ("NL", "Belanda", "Eropa"),
-    ("BE", "Belgia", "Eropa"), ("PL", "Polandia", "Eropa"),
-    ("SE", "Swedia", "Eropa"), ("NO", "Norwegia", "Eropa"),
-    ("FI", "Finlandia", "Eropa"), ("DK", "Denmark", "Eropa"),
-    ("CH", "Swiss", "Eropa"), ("AT", "Austria", "Eropa"),
-    ("RU", "Rusia", "Eropa"), ("TR", "Turki", "Eropa"),
-    ("AE", "Uni Emirat Arab", "Timur Tengah"), ("SA", "Arab Saudi", "Timur Tengah"),
-    ("QA", "Qatar", "Timur Tengah"), ("KW", "Kuwait", "Timur Tengah"),
-    ("BH", "Bahrain", "Timur Tengah"), ("OM", "Oman", "Timur Tengah"),
-    ("IL", "Israel", "Timur Tengah"), ("EG", "Mesir", "Afrika"),
-    ("ZA", "Afrika Selatan", "Afrika"), ("NG", "Nigeria", "Afrika"),
-    ("KE", "Kenya", "Afrika"), ("MA", "Maroko", "Afrika"),
+    # code, name, region, lat, lng
+    ("ID", "Indonesia", "Asia", -2.5, 118.0),
+    ("MY", "Malaysia", "Asia", 4.2, 101.9),
+    ("SG", "Singapura", "Asia", 1.3, 103.8),
+    ("TH", "Thailand", "Asia", 15.9, 100.9),
+    ("VN", "Vietnam", "Asia", 14.0, 108.0),
+    ("PH", "Filipina", "Asia", 12.9, 121.8),
+    ("JP", "Jepang", "Asia", 36.2, 138.3),
+    ("KR", "Korea Selatan", "Asia", 35.9, 127.8),
+    ("CN", "Tiongkok", "Asia", 35.9, 104.2),
+    ("IN", "India", "Asia", 20.6, 78.9),
+    ("PK", "Pakistan", "Asia", 30.4, 69.3),
+    ("BD", "Bangladesh", "Asia", 23.7, 90.4),
+    ("AU", "Australia", "Oseania", -25.3, 133.8),
+    ("NZ", "Selandia Baru", "Oseania", -40.9, 174.9),
+    ("US", "Amerika Serikat", "Amerika", 37.1, -95.7),
+    ("CA", "Kanada", "Amerika", 56.1, -106.3),
+    ("MX", "Meksiko", "Amerika", 23.6, -102.6),
+    ("BR", "Brasil", "Amerika", -14.2, -51.9),
+    ("AR", "Argentina", "Amerika", -38.4, -63.6),
+    ("CL", "Chili", "Amerika", -35.7, -71.5),
+    ("GB", "Inggris", "Eropa", 55.4, -3.4),
+    ("DE", "Jerman", "Eropa", 51.2, 10.5),
+    ("FR", "Prancis", "Eropa", 46.2, 2.2),
+    ("IT", "Italia", "Eropa", 41.9, 12.6),
+    ("ES", "Spanyol", "Eropa", 40.5, -3.7),
+    ("NL", "Belanda", "Eropa", 52.1, 5.3),
+    ("BE", "Belgia", "Eropa", 50.5, 4.5),
+    ("PL", "Polandia", "Eropa", 51.9, 19.1),
+    ("SE", "Swedia", "Eropa", 60.1, 18.6),
+    ("NO", "Norwegia", "Eropa", 60.5, 8.5),
+    ("FI", "Finlandia", "Eropa", 61.9, 25.7),
+    ("DK", "Denmark", "Eropa", 56.3, 9.5),
+    ("CH", "Swiss", "Eropa", 46.8, 8.2),
+    ("AT", "Austria", "Eropa", 47.5, 14.6),
+    ("RU", "Rusia", "Eropa", 61.5, 105.3),
+    ("TR", "Turki", "Eropa", 38.9, 35.2),
+    ("AE", "Uni Emirat Arab", "Timur Tengah", 23.4, 53.8),
+    ("SA", "Arab Saudi", "Timur Tengah", 23.9, 45.1),
+    ("QA", "Qatar", "Timur Tengah", 25.4, 51.2),
+    ("KW", "Kuwait", "Timur Tengah", 29.3, 47.5),
+    ("BH", "Bahrain", "Timur Tengah", 25.9, 50.6),
+    ("OM", "Oman", "Timur Tengah", 21.5, 55.9),
+    ("IL", "Israel", "Timur Tengah", 31.0, 34.8),
+    ("EG", "Mesir", "Afrika", 26.8, 30.8),
+    ("ZA", "Afrika Selatan", "Afrika", -30.6, 22.9),
+    ("NG", "Nigeria", "Afrika", 9.1, 8.7),
+    ("KE", "Kenya", "Afrika", -0.0, 37.9),
+    ("MA", "Maroko", "Afrika", 31.8, -7.1),
 ]
 PROVINCES_ID = [
     "Aceh", "Sumatera Utara", "Sumatera Barat", "Riau", "Jambi",
@@ -287,14 +312,19 @@ async def _generate_feed_events():
             if enabled and server and server.get("server_online"):
                 ai = random.choice(enabled)
                 message = random.choice(FEED_MESSAGES)
-                level = random.choices(["info", "success", "warning"], weights=[70, 20, 10])[0]
+                level = random.choices(
+                    ["info", "success", "warning", "error"],
+                    weights=[62, 22, 11, 5],
+                )[0]
                 now = datetime.now(timezone.utc)
                 event = {
                     "event_id": uuid.uuid4().hex,
                     "agent_id": ai["agent_id"],
                     "agent_name": ai["name"],
                     "level": level,
-                    "message": message,
+                    "message": (
+                        f"ERROR — {message} (timeout)" if level == "error" else message
+                    ),
                     "created_at": now.isoformat(),
                 }
                 await db.ai_events.insert_one(event.copy())
@@ -327,15 +357,15 @@ async def seed_database():
         ])
     if await db.countries.count_documents({}) == 0:
         await db.countries.insert_many([
-            {"code": code, "name": name, "region": region, "enabled": code == "ID"}
-            for code, name, region in COUNTRIES
+            {"code": code, "name": name, "region": region, "lat": lat, "lng": lng, "enabled": code == "ID"}
+            for code, name, region, lat, lng in COUNTRIES
         ])
     else:
         # Sync any new/renamed countries without touching enabled flag
-        for code, name, region in COUNTRIES:
+        for code, name, region, lat, lng in COUNTRIES:
             await db.countries.update_one(
                 {"code": code},
-                {"$set": {"name": name, "region": region},
+                {"$set": {"name": name, "region": region, "lat": lat, "lng": lng},
                  "$setOnInsert": {"enabled": code == "ID"}},
                 upsert=True,
             )
@@ -561,6 +591,54 @@ async def ai_feed(
         query["agent_id"] = agent_id
     events = await db.ai_events.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
     return list(reversed(events))
+
+
+@api.get("/alerts")
+async def alerts(user=Depends(current_user), minutes: int = Query(default=5, ge=1, le=60)):
+    """Return AI errors/warnings within the last `minutes` window."""
+    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    events = await db.ai_events.find(
+        {"level": {"$in": ["error", "warning"]}, "created_at": {"$gte": since}},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(50)
+    errors = [e for e in events if e["level"] == "error"]
+    warnings = [e for e in events if e["level"] == "warning"]
+    return {
+        "window_minutes": minutes,
+        "error_count": len(errors),
+        "warning_count": len(warnings),
+        "latest": events[0] if events else None,
+        "events": events[:10],
+    }
+
+
+@api.get("/widget/status")
+async def widget_status(user=Depends(current_user)):
+    """Compact JSON for iOS/Android Home Screen widget."""
+    server = await db.server_state.find_one({}, {"_id": 0}) or {}
+    ais = await db.ai_agents.find({}, {"_id": 0}).to_list(20)
+    active = sum(1 for a in ais if a.get("enabled"))
+    today = datetime.now(timezone.utc).date().isoformat()
+    stat = await db.job_stats.find_one({"date": today}, {"_id": 0}) or {
+        "successful": server.get("successful_jobs", 0),
+        "failed": server.get("failed_jobs", 0),
+    }
+    since = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    recent_errors = await db.ai_events.count_documents(
+        {"level": "error", "created_at": {"$gte": since}},
+    )
+    return {
+        "user_id": user["user_id"],
+        "server_online": bool(server.get("server_online")),
+        "active_ai": f"{active}/7",
+        "jobs_today": {
+            "successful": stat.get("successful", 0),
+            "failed": stat.get("failed", 0),
+        },
+        "active_jobs": server.get("active_jobs", 0),
+        "recent_errors": recent_errors,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @api.get("/countries")

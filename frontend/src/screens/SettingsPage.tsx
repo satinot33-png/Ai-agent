@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api } from "@/src/api";
 import { Toast } from "@/src/components/Feedback";
+import { WidgetPreview } from "@/src/components/WidgetPreview";
 import { C } from "@/src/theme";
 import { ActivityLog, User } from "@/src/types";
 
@@ -50,6 +51,10 @@ export function SettingsPage({
           <Icon name="logout" size={18} color={C.red} />
           <Text style={{ color: C.red, fontWeight: "900" }}>KELUAR</Text>
         </Pressable>
+      </View>
+
+      <View style={s.card}>
+        <WidgetPreview token={token} />
       </View>
 
       <View style={s.card}>

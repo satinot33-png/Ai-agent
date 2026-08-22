@@ -120,7 +120,7 @@ export default function ControlCenter() {
     switch (screen) {
       case "Dashboard":
         return dashboard ? (
-          <Dashboard data={dashboard} go={setScreen} />
+          <Dashboard data={dashboard} go={setScreen} token={token} />
         ) : (
           <View style={s.center}>
             <ActivityIndicator color={C.amber} />
