@@ -1,0 +1,43 @@
+{
+  "summary": "Full backend + frontend regression executed against preview URL. Backend pytest: 28/29 passed (1 failed = stale MongoDB countries collection returning only 14 rows instead of 46). Auth (username/password), /auth/me, /auth/logout, dashboard, AI CRUD + bulk + RBAC, countries PATCH + bulk, provinces (38), server on/off/restart + RBAC, interrogation, users CRUD (create/duplicate/invalid email/short pw/admin-cannot-elevate/status toggle/self-delete guard), activity log, and end-to-end new-user login all pass. Frontend Expo web preview on 390x844: Login (USERNAME tab default) → Dashboard shows 7 AI + Server core + Target Negara. AI toggle flips ON→OFF and last_activity persists. Country search 'jerm' → Jerman (DE), region 'Asia' filter returns 7 countries. Server OFF button opens confirmation sheet (BATAL/MATIKAN). Interrogation returns 10 report rows (connection/api/database + 7 AIs). Access/User form has all 12+ fields; creating KARYAWAN user succeeds and appears in list. Karyawan RBAC verified: 0 AI toggles, no bulk buttons, no server-off visible, Access page shows 'tidak memiliki izin'. No React Native red screens, no deprecated packages detected. Only issue: production DB retains 14-country legacy dataset (seed guard only runs when count==0). No expo-av/expo-barcode-scanner/expo-background-fetch usage.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/countries", "issue": "Returns only 14 countries; expected ~46 per seed. Legacy MongoDB documents from a prior iteration were never migrated because seed_database() gates on count == 0. Also 'AU' has region 'Oceania' in DB while current code seeds 'Oseania'. This makes UI Country page + interrogation appear incomplete for all users."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Country page & user allowed_countries", "issue": "Only 14 countries available due to stale DB; UI is correct but data set is incomplete.", "affected_testIDs": ["country-search", "country-row-*", "user-countries"]}
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_export7ai_full.py",
+    "/app/backend/tests/test_public_boundaries.py",
+    "/app/test_reports/pytest/pytest_iter6.xml",
+    "/app/test_reports/iteration_6.json"
+  ],
+  "action_items": [
+    "Migrate stale MongoDB countries collection: either drop the collection during startup when the seed list differs, or upsert each country in COUNTRIES so region + full 46-country list is present (fixes both /api/countries count and Oceania → Oseania spelling drift).",
+    "Optional cleanup: audit users with orphaned allowed_countries codes (e.g. superadmin shows allowed_countries=48 but only 14 exist)."
+  ],
+  "critical_code_review_comments": [
+    "server.py seed_database() gates every collection on count == 0, so upgrades to seed data (new countries, region rename) never propagate. Prefer upsert on unique key (`code`) for master data.",
+    "server.py /api/users response leaks bulk data via public_user(record) which still contains password_hash key removed only in create (record after model_dump excludes password, so hash added later then filtered). Confirm callers never receive password_hash. (Already handled here but keep in mind for future edits.)",
+    "current_user() imports datetime.timezone in-function; fine but could be simplified."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_export7ai_full.py",
+    "/app/test_reports/iteration_6.json",
+    "/app/test_reports/pytest/pytest_iter6.xml"
+  ],
+  "success_rate": {"backend": "96.5% (28/29)", "frontend": "100% (all critical flows)"},
+  "seed_data_creation": "Tests create TEST_-prefixed users and delete them via fixture teardown; also created one KARYAWAN via UI (username starts with 'ui_') that remains in DB.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend at https://ai-management-hub-8.preview.emergentagent.com. Login credentials in /app/memory/test_credentials.md. New pytest file test_export7ai_full.py covers all authenticated flows (login/logout/AI/countries/server/interrogation/users). Country test asserts >=46 which will remain failing until MongoDB countries collection is re-seeded/migrated by main agent. Drawer testIDs: open-drawer, menu-Dashboard, menu-7 AI, menu-Pilih Negara, menu-Server, menu-Interogasi Server, menu-Akses / User, menu-Pengaturan, logout-btn.",
+  "rca_of_issue": "/api/countries returns 14 rows because a previous session inserted a truncated country set; the current seed_database() short-circuits on `count_documents({}) != 0`, so the newer 46-country COUNTRIES list is never written. Fix by switching to bulk upsert keyed on `code` (and re-normalising `region`) on every startup for master data collections."
+}

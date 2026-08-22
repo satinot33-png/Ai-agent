@@ -1,30 +1,170 @@
-import Constants from "expo-constants";
 import * as Linking from "expo-linking";
-import * as WebBrowser from "expo-web-browser";
-import { MaterialCommunityIcons as Icon } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useState } from "react";
-/* eslint-disable react-hooks/exhaustive-deps */
-import { ActivityIndicator, Alert, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Platform, SafeAreaView, StatusBar, StyleSheet, Text, View } from "react-native";
+import { api } from "@/src/api";
+import { Drawer } from "@/src/components/Drawer";
+import { Header } from "@/src/components/Header";
+import { AccessPage } from "@/src/screens/AccessPage";
+import { AIPage } from "@/src/screens/AIPage";
+import { CountryPage } from "@/src/screens/CountryPage";
+import { Dashboard } from "@/src/screens/Dashboard";
+import { InterrogationPage } from "@/src/screens/InterrogationPage";
+import { Login } from "@/src/screens/Login";
+import { ServerPage } from "@/src/screens/ServerPage";
+import { SettingsPage } from "@/src/screens/SettingsPage";
+import { C, Screen } from "@/src/theme";
+import { DashboardData, User } from "@/src/types";
 import { storage } from "@/src/utils/storage";
 
-WebBrowser.maybeCompleteAuthSession();
-const API = `${Constants.expoConfig?.extra?.backendUrl || process.env.EXPO_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL || ""}/api`;
-const TOKEN = "export7ai.session_token";
-let currentToken = "";
-const C = { bg: "#0E1116", card: "#161B22", line: "#30363D", text: "#F0F2F5", muted: "#8B949E", amber: "#F0883E", green: "#3FB950", red: "#F85149" };
-type Screen = "Dashboard" | "7 AI" | "Pilih Negara" | "Server" | "Interogasi Server" | "Akses / User" | "Pengaturan";
-type User = { user_id?: string; name: string; email: string; username?: string; role: string; country?: string; province?: string; enabled?: boolean };
-type AppData = { server: any; ais: any[]; countries: any[]; logs: any[]; user: User };
-const icons = ["account-search", "chart-line", "earth", "package-variant", "bullhorn", "reply", "file-chart-outline"];
-async function api(path: string, options: RequestInit = {}, token?: string) { if (token) currentToken = token; const res = await fetch(`${API}${path}`, { ...options, headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers || {}) } }); if (!res.ok) throw new Error((await res.json().catch(() => null))?.detail || "Permintaan gagal"); return res.json(); }
-const isAdmin = (user: User) => ["ADMIN", "SUPER ADMIN", "ADMINISTRATOR"].includes(user.role.toUpperCase());
+const TOKEN_KEY = "export7ai.session_token";
 
-function Status({ on, text }: { on: boolean; text: string }) { return <View style={s.status}><View style={[s.dot, { backgroundColor: on ? C.green : C.red }]} /><Text style={[s.statusText, { color: on ? C.green : C.red }]}>{text}</Text></View>; }
-function Login({ done }: { done: (token: string, user: User) => void }) { const [busy, setBusy] = useState(false); const login = async () => { setBusy(true); try { const redirect = Platform.OS === "web" ? `${window.location.origin}/` : Linking.createURL(""); if (Platform.OS === "web") { window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirect)}`; return; } let eventUrl = ""; const listener = Linking.addEventListener("url", e => { eventUrl = e.url; }); const result = await WebBrowser.openAuthSessionAsync(`https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirect)}`, redirect); listener.remove(); const callback = result.type === "success" ? result.url : eventUrl || (await Linking.getInitialURL()) || ""; const id = callback.match(/[?#&]session_id=([^&#]+)/)?.[1]; if (!id) throw new Error("Sesi Google belum diterima."); const data = await api("/auth/session", { method: "POST", body: JSON.stringify({ session_id: decodeURIComponent(id) }) }); await storage.secureSet(TOKEN, data.session_token); done(data.session_token, data.user); } catch (e: any) { Alert.alert("Login gagal", e.message); } finally { setBusy(false); } }; return <SafeAreaView style={s.login}><Icon name="orbit" size={38} color={C.amber} /><Text style={s.kicker}>EXPORT OPERATIONS / CONTROL CENTER</Text><Text style={s.loginTitle}>Export 7 AI</Text><Text style={s.copy}>Kendalikan operasi AI ekspor, target pasar, dan kesehatan server dari satu tempat.</Text><View style={s.loginCard}><Text style={s.cardTitle}>Akses terproteksi</Text><Text style={s.muted}>Masuk menggunakan akun Google yang terdaftar sebagai operator.</Text><Pressable testID="google-login-button" style={s.primary} onPress={login} disabled={busy}>{busy ? <ActivityIndicator color={C.bg} /> : <><Icon name="google" size={18} color={C.bg} /><Text style={s.primaryText}>MASUK DENGAN GOOGLE</Text></>}</Pressable></View></SafeAreaView>; }
-function Header({ screen, user, menu }: { screen: Screen; user: User; menu: () => void }) { return <View style={s.header}><Pressable testID="open-drawer" onPress={menu} style={s.icon}><Icon name="menu" size={25} color={C.text} /></Pressable><View style={{ flex: 1 }}><Text style={s.kicker}>EXPORT 7 AI</Text><Text style={s.headerTitle}>{screen}</Text></View><View style={s.avatar}><Text style={s.avatarText}>{user.name[0]?.toUpperCase()}</Text></View></View>; }
-function Dashboard({ data, go }: { data: AppData; go: (x: Screen) => void }) { const active = data.ais.filter(x => x.enabled).length; return <ScrollView contentContainerStyle={s.content}><Text style={s.kicker}>OVERVIEW / LIVE</Text><View style={s.titleRow}><View><Text style={s.pageTitle}>Command center</Text><Text style={s.muted}>Pantau operasi ekspor secara real-time.</Text></View><Status on={data.server.server_online} text={data.server.server_online ? "ONLINE" : "OFFLINE"} /></View><View style={s.card}><View style={s.titleRow}><View><Text style={s.muted}>SERVER CORE</Text><Text style={s.cardTitle}>{data.server.domain}</Text></View><Icon name="server-network" size={30} color={C.amber} /></View><View style={s.metrics}>{[["CPU", `${data.server.cpu}%`], ["RAM", `${data.server.ram}%`], ["UPTIME", data.server.uptime], ["AI AKTIF", `${active}/7`]].map(([a, b]) => <View style={s.metric} key={a}><Text style={s.muted}>{a}</Text><Text style={s.metricValue}>{b}</Text></View>)}</View></View><View style={s.titleRow}><Text style={s.section}>AI NETWORK</Text><Pressable onPress={() => go("7 AI")}><Text style={s.link}>KELOLA</Text></Pressable></View><View style={s.aiGrid}>{data.ais.map((ai, i) => <View style={s.aiMini} key={ai.agent_id}><Icon name={icons[i] as any} size={21} color={ai.enabled ? C.amber : C.muted} /><Text style={s.aiName}>{ai.name}</Text><Status on={ai.enabled} text={ai.enabled ? "ON" : "OFF"} /></View>)}</View><Text style={s.section}>TARGET MARKET</Text><View style={s.wrap}>{data.countries.map(c => <View style={s.chip} key={c.code}><Text style={s.chipText}>{c.name}</Text></View>)}</View><Text style={s.section}>AKTIVITAS TERBARU</Text>{data.logs.map(l => <View style={s.log} key={l.log_id}><Text style={s.body}>{l.action}</Text><Text style={s.muted}>{l.detail} · {l.actor}</Text></View>)}</ScrollView>; }
-function AIPage({ data, token, user, reload }: { data: AppData; token: string; user: User; reload: () => void }) { const [busy, setBusy] = useState(""); const toggle = async (id: string, enabled: boolean) => { setBusy(id); try { await api(`/ai/${id}`, { method: "PATCH", body: JSON.stringify({ enabled }) }, token); await reload(); } catch (e: any) { Alert.alert("Gagal mengubah AI", e.message); } finally { setBusy(""); } }; const bulk = async (enabled: boolean) => { setBusy("bulk"); try { await api("/ai/bulk", { method: "POST", body: JSON.stringify({ enabled }) }, token); await reload(); } catch (e: any) { Alert.alert("Gagal mengubah semua AI", e.message); } finally { setBusy(""); } }; return <ScrollView contentContainerStyle={s.content}><Text style={s.kicker}>AI NETWORK / 7 AGENTS</Text><Text style={s.pageTitle}>Kontrol 7 AI</Text><Text style={s.muted}>Perubahan dikirim ke backend dan tersimpan di database.</Text>{isAdmin(user) && <View style={s.actions}><Pressable testID="enable-all-ai" onPress={() => bulk(true)} style={s.small}><Text style={s.smallText}>AKTIFKAN SEMUA AI</Text></Pressable><Pressable testID="disable-all-ai" onPress={() => bulk(false)} style={s.small}><Text style={s.smallText}>MATIKAN SEMUA AI</Text></Pressable></View>}{data.ais.map((ai, i) => <View style={s.aiCard} key={ai.agent_id}><Icon name={icons[i] as any} size={22} color={ai.enabled ? C.amber : C.muted} /><View style={{ flex: 1 }}><View style={s.titleRow}><Text style={s.cardTitle}>{ai.name}</Text><Status on={ai.enabled} text={ai.enabled ? "ON" : "OFF"} /></View><Text style={s.aiFunction}>{ai.function}</Text><Text style={s.muted}>{ai.job_status} · {ai.last_activity}</Text></View>{isAdmin(user) && <Pressable testID={`toggle-${ai.agent_id}`} onPress={() => toggle(ai.agent_id, !ai.enabled)} style={[s.toggle, ai.enabled && s.toggleOn]}>{busy === ai.agent_id ? <ActivityIndicator color={C.bg} /> : <View style={[s.knob, ai.enabled && s.knobOn]} />}</Pressable>}</View>)}</ScrollView>; }
-function AccessPage({ token, user }: { token: string; user: User }) { const [users, setUsers] = useState<User[]>([]); const [editing, setEditing] = useState<string>(); const [form, setForm] = useState({ name: "", username: "", password: "", role: "User", country: "Indonesia", province: "", enabled: true }); const load = useCallback(async () => setUsers(await api("/users", {}, token)), [token]); useEffect(() => { load().catch(() => null); }, [load]); const save = async () => { try { if (editing) await api(`/users/${editing}`, { method: "PATCH", body: JSON.stringify({ ...form, password: form.password || undefined }) }, token); else await api("/users", { method: "POST", body: JSON.stringify(form) }, token); setEditing(undefined); setForm({ name: "", username: "", password: "", role: "User", country: "Indonesia", province: "", enabled: true }); await load(); } catch (e: any) { Alert.alert("Gagal menyimpan user", e.message); } }; const toggle = async (item: User) => { try { await api(`/users/${item.user_id}/status`, { method: "PATCH", body: JSON.stringify({ enabled: item.enabled === false }) }, token); await load(); } catch (e: any) { Alert.alert("Gagal mengubah status user", e.message); } }; const remove = (id: string) => Alert.alert("Hapus user?", "Data user akan dihapus dari database.", [{ text: "Batal" }, { text: "Hapus", style: "destructive", onPress: async () => { await api(`/users/${id}`, { method: "DELETE" }, token); load(); } }]); const edit = (item: User) => { setEditing(item.user_id); setForm({ name: item.name, username: item.username || "", password: "", role: item.role, country: item.country || "", province: item.province || "", enabled: item.enabled !== false }); }; if (!isAdmin(user)) return <ScrollView contentContainerStyle={s.content}><Text style={s.pageTitle}>Akses / User</Text><Text style={s.muted}>Akses read-only. Hanya Admin yang dapat mengelola pengguna.</Text></ScrollView>; return <View style={s.flex}><ScrollView contentContainerStyle={s.content}><Text style={s.kicker}>ACCESS CONTROL / RBAC</Text><Text style={s.pageTitle}>Akses User</Text><View style={s.form}>{[["Nama User", "name"], ["Username", "username"], ["Password (min. 8 karakter)", "password"], ["Negara", "country"], ["Provinsi", "province"]].map(([label, key]) => <TextInput testID={`user-input-${key}`} key={key} value={(form as any)[key]} onChangeText={v => setForm(x => ({ ...x, [key]: v }))} placeholder={label} placeholderTextColor={C.muted} secureTextEntry={key === "password"} style={s.input} />)}<Text style={s.label}>ROLE / HAK AKSES</Text><View style={s.actions}>{["Admin", "Operator", "User"].map(role => <Pressable testID={`role-${role}`} key={role} onPress={() => setForm(x => ({ ...x, role }))} style={[s.role, form.role === role && s.roleActive]}><Text style={s.smallText}>{role}</Text></Pressable>)}</View><Pressable testID="save-user" onPress={save} style={s.primary}><Text style={s.primaryText}>{editing ? "SIMPAN PERUBAHAN" : "SIMPAN USER"}</Text></Pressable></View><Text style={s.section}>DAFTAR USER ({users.length})</Text>{users.map(item => <View style={s.userRow} key={item.user_id}><View style={{ flex: 1 }}><Text style={s.cardTitle}>{item.name}</Text><Text style={s.muted}>@{item.username} · {item.role}</Text><Text style={s.muted}>{item.country} · {item.province}</Text></View><Pressable testID={`toggle-user-${item.user_id}`} onPress={() => toggle(item)}><Status on={item.enabled !== false} text={item.enabled !== false ? "ON" : "OFF"} /></Pressable><View style={s.userActions}><Pressable testID={`edit-user-${item.user_id}`} onPress={() => edit(item)}><Icon name="pencil-outline" size={20} color={C.amber} /></Pressable><Pressable testID={`delete-user-${item.user_id}`} onPress={() => remove(item.user_id!)}><Icon name="trash-can-outline" size={20} color={C.red} /></Pressable></View></View>)}</ScrollView></View>; }
-function SimplePage({ screen }: { screen: Screen }) { const [result, setResult] = useState<any>(); const [error, setError] = useState(""); const [busy, setBusy] = useState(false); const run = async () => { setBusy(true); setError(""); try { if (screen === "Server") setResult(await api("/server", {}, currentToken)); else if (screen === "Pilih Negara") setResult(await api("/countries", {}, currentToken)); else if (screen === "Interogasi Server") setResult(await api("/interrogation", { method: "POST" }, currentToken)); } catch (e: any) { setError(e.message || "Data belum dapat dimuat."); } finally { setBusy(false); } }; useEffect(() => { run(); }, [screen]); return <ScrollView contentContainerStyle={s.content}><Text style={s.kicker}>SYSTEM / LIVE DATA</Text><Text style={s.pageTitle}>{screen}</Text><Pressable testID={`refresh-${screen}`} onPress={run} style={s.primary}>{busy ? <ActivityIndicator color={C.bg} /> : <Text style={s.primaryText}>{screen === "Interogasi Server" ? "CHECK SERVER" : "REFRESH DATA"}</Text>}</Pressable>{error ? <View style={s.card}><Text style={{ color: C.red }}>{error}</Text><Text style={s.muted}>Periksa koneksi API lalu coba lagi.</Text></View> : result && <View style={s.card}><Text style={s.section}>HASIL SERVER</Text><Text style={s.body}>{JSON.stringify(result, null, 2)}</Text></View>}</ScrollView>; }
-export default function ControlCenter() { const [token, setToken] = useState<string>(); const [user, setUser] = useState<User>(); const [data, setData] = useState<AppData>(); const [screen, setScreen] = useState<Screen>("Dashboard"); const [drawer, setDrawer] = useState(false); const [loading, setLoading] = useState(true); const load = useCallback(async (t: string) => setData(await api("/dashboard", {}, t)), []); useEffect(() => { (async () => { try { const url = Platform.OS === "web" ? `${window.location.hash}${window.location.search}` : (await Linking.getInitialURL()) || ""; const id = url.match(/[?#&]session_id=([^&#]+)/)?.[1]; if (id) { const r = await api("/auth/session", { method: "POST", body: JSON.stringify({ session_id: decodeURIComponent(id) }) }); await storage.secureSet(TOKEN, r.session_token); setToken(r.session_token); setUser(r.user); } else { const saved = await storage.secureGet<string | null>(TOKEN, null); if (saved) { setToken(saved); setUser(await api("/auth/me", {}, saved)); } } } catch { await storage.secureRemove(TOKEN); } finally { setLoading(false); } })(); }, []); useEffect(() => { if (token) load(token).catch(() => setToken(undefined)); }, [token, load]); if (loading) return <View style={s.splash}><ActivityIndicator color={C.amber} /><Text style={s.muted}>Menghubungkan control center...</Text></View>; if (!token || !user) return <Login done={(t, u) => { setToken(t); setUser(u); }} />; const body = screen === "Dashboard" ? <Dashboard data={data!} go={setScreen} /> : screen === "7 AI" ? <AIPage data={data!} token={token} user={user} reload={() => load(token)} /> : screen === "Akses / User" ? <AccessPage token={token} user={user} /> : screen === "Server" ? <SimplePage screen="Server" /> : screen === "Interogasi Server" ? <SimplePage screen="Interogasi Server" /> : screen === "Pilih Negara" ? <SimplePage screen="Pilih Negara" /> : <SimplePage screen="Pengaturan" />; return <SafeAreaView style={s.app}><Header screen={screen} user={user} menu={() => setDrawer(true)} />{data ? body : <ActivityIndicator color={C.amber} />}{drawer && <View style={s.drawerWrap}><Pressable style={s.overlay} onPress={() => setDrawer(false)} /><View style={s.drawer}><Text style={s.drawerTitle}>EXPORT <Text style={{ color: C.amber }}>7 AI</Text></Text>{(["Dashboard", "7 AI", "Pilih Negara", "Server", "Interogasi Server", "Akses / User", "Pengaturan"] as Screen[]).map(item => <Pressable testID={`menu-${item}`} key={item} onPress={() => { setScreen(item); setDrawer(false); }} style={[s.menu, item === screen && s.menuActive]}><Text style={s.menuText}>{item}</Text></Pressable>)}<View style={s.drawerBottom}><Text style={s.muted}>{user.email}</Text><Pressable onPress={async () => { await storage.secureRemove(TOKEN); setToken(undefined); setUser(undefined); }}><Text style={{ color: C.red }}>KELUAR</Text></Pressable></View></View></View>}</SafeAreaView>; }
-const s = StyleSheet.create({ app: { flex: 1, backgroundColor: C.bg }, flex: { flex: 1, backgroundColor: C.bg }, splash: { flex: 1, backgroundColor: C.bg, justifyContent: "center", alignItems: "center", gap: 12 }, login: { flex: 1, backgroundColor: C.bg, padding: 28, justifyContent: "center" }, kicker: { color: C.amber, fontSize: 10, letterSpacing: 1.2, fontWeight: "800" }, loginTitle: { color: C.text, fontSize: 38, fontWeight: "800", marginTop: 8 }, copy: { color: C.muted, fontSize: 16, lineHeight: 24, marginTop: 12 }, loginCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, padding: 20, marginTop: 32, gap: 12 }, card: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, padding: 16, gap: 10 }, cardTitle: { color: C.text, fontSize: 16, fontWeight: "800" }, muted: { color: C.muted, fontSize: 13, lineHeight: 20 }, primary: { minHeight: 48, backgroundColor: C.amber, justifyContent: "center", alignItems: "center", flexDirection: "row", gap: 9, padding: 12, marginTop: 10 }, primaryText: { color: C.bg, fontWeight: "900", fontSize: 12 }, header: { height: 78, borderBottomWidth: 1, borderColor: C.line, paddingHorizontal: 16, flexDirection: "row", alignItems: "center" }, icon: { width: 44, justifyContent: "center" }, headerTitle: { color: C.text, fontSize: 18, fontWeight: "800", marginTop: 3 }, avatar: { width: 34, height: 34, backgroundColor: C.amber, alignItems: "center", justifyContent: "center" }, avatarText: { color: C.bg, fontWeight: "900" }, content: { padding: 20, paddingBottom: 48, gap: 16 }, titleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" }, pageTitle: { color: C.text, fontSize: 28, fontWeight: "900", marginVertical: 5 }, status: { flexDirection: "row", gap: 5, alignItems: "center" }, dot: { width: 7, height: 7, borderRadius: 7 }, statusText: { fontSize: 10, fontWeight: "900" }, metrics: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 18 }, metric: { flex: 1, minWidth: "28%", borderWidth: 1, borderColor: C.line, padding: 10 }, metricValue: { color: C.text, fontSize: 17, fontWeight: "900", marginTop: 4 }, section: { color: C.text, fontSize: 12, fontWeight: "900", letterSpacing: 1, marginTop: 8 }, link: { color: C.amber, fontSize: 11, fontWeight: "900" }, aiGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, aiMini: { width: "31%", minHeight: 92, backgroundColor: C.card, borderWidth: 1, borderColor: C.line, padding: 10, gap: 7 }, aiName: { color: C.text, fontSize: 11, fontWeight: "800" }, wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, chip: { borderWidth: 1, borderColor: C.amber, padding: 8 }, chipText: { color: C.amber, fontSize: 12 }, log: { borderBottomWidth: 1, borderColor: C.line, paddingBottom: 10 }, body: { color: C.text, fontSize: 14 }, aiCard: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 }, aiFunction: { color: C.amber, fontSize: 12, fontWeight: "700" }, toggle: { width: 44, height: 26, borderRadius: 20, backgroundColor: C.line, justifyContent: "center", padding: 3 }, toggleOn: { backgroundColor: C.amber }, knob: { width: 20, height: 20, borderRadius: 20, backgroundColor: C.muted }, knobOn: { alignSelf: "flex-end", backgroundColor: C.bg }, actions: { flexDirection: "row", gap: 8, flexWrap: "wrap" }, small: { borderWidth: 1, borderColor: C.amber, padding: 10, flex: 1, minWidth: 130, alignItems: "center" }, smallText: { color: C.amber, fontSize: 11, fontWeight: "900" }, form: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, padding: 14, gap: 9 }, input: { backgroundColor: C.bg, borderWidth: 1, borderColor: C.line, color: C.text, padding: 12 }, label: { color: C.muted, fontSize: 10, fontWeight: "800", marginTop: 5 }, role: { borderWidth: 1, borderColor: C.line, padding: 10, flex: 1, alignItems: "center" }, roleActive: { borderColor: C.amber, backgroundColor: "#2D221B" }, userRow: { backgroundColor: C.card, borderWidth: 1, borderColor: C.line, padding: 13, flexDirection: "row", alignItems: "center", gap: 9 }, userActions: { gap: 12 }, drawerWrap: { ...StyleSheet.absoluteFillObject, flexDirection: "row" }, overlay: { flex: 1, backgroundColor: "rgba(0,0,0,.65)" }, drawer: { width: 285, backgroundColor: C.card, padding: 24, paddingTop: 48, borderRightWidth: 1, borderColor: C.line }, drawerTitle: { color: C.text, fontSize: 20, fontWeight: "900", marginBottom: 28 }, menu: { minHeight: 48, justifyContent: "center", paddingHorizontal: 12 }, menuActive: { backgroundColor: "#2D221B", borderLeftWidth: 2, borderLeftColor: C.amber }, menuText: { color: C.text, fontSize: 14, fontWeight: "700" }, drawerBottom: { marginTop: "auto", gap: 14, borderTopWidth: 1, borderColor: C.line, paddingTop: 16 } });
+export default function ControlCenter() {
+  const [token, setToken] = useState<string>();
+  const [user, setUser] = useState<User>();
+  const [dashboard, setDashboard] = useState<DashboardData>();
+  const [screen, setScreen] = useState<Screen>("Dashboard");
+  const [drawer, setDrawer] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  const loadDashboard = useCallback(async (t: string) => {
+    try {
+      setDashboard(await api<DashboardData>("/dashboard", { token: t }));
+    } catch (e) {
+      // If token invalid, clear it
+      const msg = (e as Error).message || "";
+      if (msg.toLowerCase().includes("token") || msg.toLowerCase().includes("sesi")) {
+        await storage.secureRemove(TOKEN_KEY);
+        setToken(undefined);
+        setUser(undefined);
+      }
+    }
+  }, []);
+
+  // Boot: try existing token or catch OAuth redirect
+  useEffect(() => {
+    (async () => {
+      try {
+        const url =
+          Platform.OS === "web"
+            ? `${window.location.hash}${window.location.search}`
+            : (await Linking.getInitialURL()) || "";
+        const sid = url.match(/[?#&]session_id=([^&#]+)/)?.[1];
+        if (sid) {
+          const r = await api<{ session_token: string; user: User }>("/auth/session", {
+            method: "POST",
+            body: JSON.stringify({ session_id: decodeURIComponent(sid) }),
+          });
+          await storage.secureSet(TOKEN_KEY, r.session_token);
+          setToken(r.session_token);
+          setUser(r.user);
+        } else {
+          const saved = await storage.secureGet<string | null>(TOKEN_KEY, null);
+          if (saved) {
+            const me = await api<User>("/auth/me", { token: saved });
+            setToken(saved);
+            setUser(me);
+          }
+        }
+      } catch {
+        await storage.secureRemove(TOKEN_KEY);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (token) loadDashboard(token);
+  }, [token, loadDashboard, refreshTick]);
+
+  const handleLogin = async (t: string, u: User) => {
+    await storage.secureSet(TOKEN_KEY, t);
+    setToken(t);
+    setUser(u);
+  };
+
+  const handleLogout = async () => {
+    if (token) {
+      try {
+        await api("/auth/logout", { method: "POST", token });
+      } catch {
+        /* ignore */
+      }
+    }
+    await storage.secureRemove(TOKEN_KEY);
+    setToken(undefined);
+    setUser(undefined);
+    setDashboard(undefined);
+    setScreen("Dashboard");
+    setDrawer(false);
+  };
+
+  const bump = () => setRefreshTick((x) => x + 1);
+
+  if (loading) {
+    return (
+      <View style={s.splash} testID="app-loading">
+        <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+        <ActivityIndicator color={C.amber} />
+        <Text style={s.muted}>Menghubungkan control center...</Text>
+      </View>
+    );
+  }
+
+  if (!token || !user) {
+    return <Login onDone={handleLogin} />;
+  }
+
+  const body = (() => {
+    switch (screen) {
+      case "Dashboard":
+        return dashboard ? (
+          <Dashboard data={dashboard} go={setScreen} />
+        ) : (
+          <View style={s.center}>
+            <ActivityIndicator color={C.amber} />
+          </View>
+        );
+      case "7 AI":
+        return <AIPage token={token} user={user} onLog={bump} />;
+      case "Pilih Negara":
+        return <CountryPage token={token} user={user} onLog={bump} />;
+      case "Server":
+        return <ServerPage token={token} user={user} onLog={bump} />;
+      case "Interogasi Server":
+        return <InterrogationPage token={token} user={user} onLog={bump} />;
+      case "Akses / User":
+        return <AccessPage token={token} user={user} onLog={bump} />;
+      case "Pengaturan":
+        return <SettingsPage token={token} user={user} onLogout={handleLogout} />;
+    }
+  })();
+
+  return (
+    <SafeAreaView style={s.app}>
+      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <Header screen={screen} user={user} onMenu={() => setDrawer(true)} />
+      <View style={{ flex: 1 }}>{body}</View>
+      {drawer && (
+        <Drawer
+          screen={screen}
+          user={user}
+          onSelect={(item) => {
+            setScreen(item);
+            setDrawer(false);
+          }}
+          onClose={() => setDrawer(false)}
+          onLogout={handleLogout}
+        />
+      )}
+    </SafeAreaView>
+  );
+}
+
+const s = StyleSheet.create({
+  app: { flex: 1, backgroundColor: C.bg },
+  splash: { flex: 1, backgroundColor: C.bg, justifyContent: "center", alignItems: "center", gap: 12 },
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
+  muted: { color: C.muted, fontSize: 13 },
+});
