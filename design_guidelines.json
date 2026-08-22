@@ -1,0 +1,162 @@
+{
+  "app_name": "Export 7 AI Control Center",
+  "personality": "7 Dark-First Utility DARK (with warm amber/rust command-center accents)",
+  "personality_one_liner": "An uncompromising mobile command center for mission-critical AI servers and autonomous multi-agent export operations.",
+  "color": {
+    "surface": "#0E1116",
+    "onSurface": "#F0F2F5",
+    "surfaceSecondary": "#161B22",
+    "onSurfaceSecondary": "#8B949E",
+    "surfaceTertiary": "#21262D",
+    "onSurfaceTertiary": "#C9D1D9",
+    "surfaceInverse": "#F0F2F5",
+    "onSurfaceInverse": "#0E1116",
+    "brand": "#F0883E",
+    "brandPrimary": "#F0883E",
+    "onBrandPrimary": "#0E1116",
+    "brandSecondary": "#D17126",
+    "onBrandSecondary": "#F0F2F5",
+    "brandTertiary": "#2D221B",
+    "onBrandTertiary": "#F0883E",
+    "success": "#3FB950",
+    "onSuccess": "#0E1116",
+    "warning": "#D29922",
+    "onWarning": "#0E1116",
+    "error": "#F85149",
+    "onError": "#0E1116",
+    "info": "#58A6FF",
+    "onInfo": "#0E1116",
+    "border": "#30363D",
+    "borderStrong": "#8B949E",
+    "divider": "#21262D"
+  },
+  "typography": {
+    "displayFontFamily": "BarlowCondensed_600SemiBold",
+    "textFontFamily": "Inter_400Regular",
+    "scale": { "sm": 12, "base": 14, "lg": 16, "xl": 20, "2xl": 24 }
+  },
+  "spacing": {
+    "rule": "Generous modular padding with compact high-density metric rows. Padding strictly follows 4-point baseline grid.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 10,
+    "lg": 16,
+    "pill": 999
+  },
+  "shadow_tier": "0",
+  "navigation": "drawer",
+  "icon_set": "MaterialCommunityIcons",
+  "glassmorphism": {
+    "enabled": false,
+    "do's": [
+      "Use crisp 1pt borders (#30363D) for operational cards",
+      "Ensure OLED-friendly contrast for system metrics",
+      "Use amber/rust accents strictly for active states and critical controls"
+    ],
+    "dont's": [
+      "No heavy blurs on dense data screens",
+      "No rounded playful bubbles",
+      "No pure black backgrounds"
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-blur",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Dashboard Utama",
+      "purpose": "High-level command center showing server status, 7 AI workers, active target markets, recent activities, and quick actions.",
+      "states": {
+        "loading": "Centered dark spinner with pulsing amber telemetry indicator.",
+        "empty": "No active telemetry feeds. Initialize backend connection.",
+        "error": "Failed to poll server heartbeat. Retry connection button."
+      },
+      "layout": "Sticky top bar with server online badge & drawer toggle. Overview metric cards (CPU, RAM, Uptime, Active AI). 7 AI status summary grid with quick ON/OFF toggles. Active target country chips. Recent activity stream with audit log indicators."
+    },
+    {
+      "name": "Kontrol 7 AI",
+      "purpose": "Individual management and monitoring for the 7 autonomous export AI agents connected to the backend.",
+      "states": {
+        "loading": "Skeleton card rows with shimmer effect.",
+        "empty": "No AI agents registered in backend registry.",
+        "error": "Failed to fetch AI cluster state. Retry."
+      },
+      "layout": "Vertical list of 7 AI agent cards (AI 1 to AI 7). Each card includes name, function, ON/OFF toggle, status badge (Working/Idle/Error), last activity timestamp, and interactive detail modal trigger."
+    },
+    {
+      "name": "Pilih Negara",
+      "purpose": "Manage target export countries via server-synced checkboxes and bulk activation controls.",
+      "states": {
+        "loading": "Loading global country list...",
+        "empty": "No target countries configured.",
+        "error": "Failed to sync country whitelist from server."
+      },
+      "layout": "Header with bulk action bar (Pilih Semua, Hapus Semua, Aktifkan Negara, Nonaktifkan Negara). Filterable country list with status toggles and region badges."
+    },
+    {
+      "name": "Kontrol Server",
+      "purpose": "Monitor backend resource consumption, API status, and execute critical infrastructure commands.",
+      "states": {
+        "loading": "Fetching infrastructure telemetry...",
+        "empty": "Server endpoint unreachable.",
+        "error": "API handshake timeout. Check secure token."
+      },
+      "layout": "Server status banner (ONLINE/OFFLINE), IP/Domain display, API health badge, real-time gauges for CPU, RAM, and Storage. Action buttons for SERVER ON, SERVER OFF (with confirmation modal), and RESTART SERVER."
+    },
+    {
+      "name": "Interogasi Server",
+      "purpose": "Comprehensive system diagnostics reporting connection status, database health, job execution stats, and audit logs.",
+      "states": {
+        "loading": "Running diagnostic handshake across all 7 AI nodes...",
+        "empty": "No diagnostic report generated.",
+        "error": "Interrogation aborted due to network failure."
+      },
+      "layout": "Prominent 'CHECK SERVER' execution button. Diagnostic result cards categorized into OK / WARNING / ERROR with live log console output."
+    },
+    {
+      "name": "Akses / User",
+      "purpose": "Role-based access control management for SUPER ADMIN, ADMIN, and KARYAWAN roles.",
+      "states": {
+        "loading": "Loading user permission matrix...",
+        "empty": "No users found in directory.",
+        "error": "Failed to load access control list."
+      },
+      "layout": "Role summary cards, user directory list with role badges, permission toggle matrix synced with server backend."
+    },
+    {
+      "name": "Pengaturan",
+      "purpose": "Configure secure API endpoints, JWT tokens, notification thresholds, and audit logging preferences.",
+      "states": {
+        "loading": "Loading secure preferences...",
+        "empty": "No settings available.",
+        "error": "Failed to save configuration to backend."
+      },
+      "layout": "Grouped settings sections: Server Endpoint Configuration, Security & JWT Tokens, Notification Triggers, and Audit Logging."
+    }
+  ],
+  "images": {
+    "splash_backdrop": {
+      "url": "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?q=80&w=1200&auto=format&fit=crop",
+      "dark": "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?q=80&w=1200&auto=format&fit=crop",
+      "alt": "Dark server rack telemetry backdrop"
+    }
+  },
+  "instructions_to_main_agent": "Build Export 7 AI Control Center using React Native and Expo Router following the 7 Dark-First Utility DARK personality. Ensure all 7 AI agents, server telemetry, country selector, server interrogation, and RBAC system are fully interactive with mock backend API integration. Implement secure token handling, confirmation modals for dangerous server actions, and a sliding drawer navigation menu."
+}
