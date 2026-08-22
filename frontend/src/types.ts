@@ -62,12 +62,28 @@ export type ActivityLog = {
   created_at: string;
 };
 
+export type JobStat = {
+  date: string;
+  successful: number;
+  failed: number;
+  active: number;
+};
+
+export type Recipient = {
+  recipient_id: string;
+  name: string;
+  email: string;
+  note?: string;
+  created_at: string;
+};
+
 export type DashboardData = {
   server: ServerState;
   ais: AIAgent[];
   countries: Country[];
   logs: ActivityLog[];
   user: User;
+  job_stats?: JobStat[];
 };
 
 export type InterrogationResult = {

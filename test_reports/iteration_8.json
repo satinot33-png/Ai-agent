@@ -1,0 +1,43 @@
+{
+  "summary": "Iteration 8 (Job Trend Chart + Email Report to Recipients) fully verified. Backend pytest: 15/15 new tests pass + 17/17 iteration-7 regression pass (32/32 combined). GET /api/dashboard now returns job_stats (7 items ascending by date, keys date/successful/failed/active). GET /api/stats/jobs honours days=7 (default), days=3, and returns 422 for days=0 or days=31. job_stats seed is idempotent — repeated GETs do not grow the count. POST /api/settings/recipients validates: name>=2 (422 otherwise), email must be valid (422 otherwise), duplicate email per user -> 409. GET /api/settings/recipients scoped per-user (karyawan cannot see superadmin's recipients). DELETE requires matching owner (returns 404 on wrong owner). POST /api/interrogation/email with mode=summary and delivered@resend.dev returned {status:'sent', recipient, recipient_name, subject} 200; mode=detailed also 200 and audit log contains a REPORT_EMAIL entry mentioning delivered@resend.dev; recipient_id belonging to another user -> 404; invalid mode -> 422. Guardrails in services/email.py: _assert_safe_email is called synchronously inside send_interrogation_email before _post_send (no bypass path); HTML template contains no <form>/<input>/<textarea>/<select>, all URLs are https:// or mailto/tel/cid; subject uses EMAIL_FROM_NAME='Export 7 AI'. Frontend E2E (390x844): superadmin login → Dashboard shows TREN JOB card with testID job-trend-chart, 7 bar-ok-<date> + 7 bar-fail-<date> columns, badge '98% SUKSES', legend Sukses/Gagal, day labels Min-Sab. Interrogasi Server → CHECK SERVER → interrogation-result → EMAIL RINGKAS opens email-sheet, add-recipient-toggle expanded, recipient-name/email/note filled, SIMPAN PENERIMA saves, recipient row auto-selected → KIRIM SEKARANG closes the sheet (success). EMAIL DETAIL 24 JAM opens the same sheet with mode=detailed and also closes on send success. Cleanup: E2E-created recipient rcp_d89ad385b572 deleted; karyawan list confirmed empty; seed users untouched. No React Native red screens, no deprecated packages (no expo-av / expo-barcode-scanner / expo-background-fetch).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8.py",
+    "/app/backend/tests/test_iteration7.py",
+    "/app/test_reports/pytest/pytest_iter8.xml",
+    "/app/test_reports/iter8_dashboard.jpeg",
+    "/app/test_reports/iter8_after_send.jpeg"
+  ],
+  "action_items": [
+    "(Optional) POST /api/settings/recipients currently returns HTTP 200 on create; consider returning 201 to match the review request's '201-shape row' expectation. Body already contains recipient_id + fields, so functionally equivalent — only the status code differs.",
+    "(Optional) Consider echoing the message_id from Resend proxy verbatim in the send response; when the proxy returns no id the API still returns 'sent' which is correct, but downstream tracking would benefit from a fallback id (e.g. audit_id) so clients always have a correlation key."
+  ],
+  "critical_code_review_comments": [
+    "server.py::add_recipient enforces the 20-recipient cap and duplicate-email 409 before insert — correct and race-safe enough for single-app-node.",
+    "server.py::email_interrogation only fetches a recipient scoped to user_id, so cross-user access naturally becomes 404 (no need to leak 403 vs 404).",
+    "services/email.py::_assert_safe_email is called BEFORE _post_send inside send_interrogation_email — no bypass path exists in the /api/interrogation/email handler.",
+    "The email HTML template hard-codes only mailto-free absolute URLs (none present) and uses only table/tr/td/div/p/h3/strong tags — no <form>/<input>/<textarea>/<select>. Guardrail satisfied.",
+    "GET /api/stats/jobs uses ge=1, le=30 on the FastAPI Query, so both boundaries yield 422 automatically — clean.",
+    "Job-stats seed at startup checks per-date existence before insert (idempotent). Restarting the server will not duplicate rows.",
+    "Frontend EmailReportSheet.tsx uses process.env.EXPO_PUBLIC_BACKEND_URL indirectly via the shared api helper (verified working)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration8.py",
+    "/app/test_reports/pytest/pytest_iter8.xml",
+    "/app/test_reports/iteration_8.json",
+    "/app/test_reports/iter8_dashboard.jpeg",
+    "/app/test_reports/iter8_after_send.jpeg"
+  ],
+  "success_rate": {"backend": "100% (15/15 iter8 + 17/17 iter7 regression)", "frontend": "100% (Dashboard TrendChart + EmailReportSheet summary + detailed flows)"},
+  "seed_data_creation": "All TEST_-prefixed recipients created during pytest and one E2E-created recipient (delivered@resend.dev under superadmin) were deleted at end of run via API. Karyawan recipient list verified empty. Seed users (superadmin/admin/karyawan) untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend at https://ai-management-hub-8.preview.emergentagent.com. Pytest suites: `EXPO_BACKEND_URL=<preview> python -m pytest backend/tests/test_iteration7.py backend/tests/test_iteration8.py -o addopts=''`. Iteration-8 file (test_iteration8.py) covers: dashboard job_stats shape, /api/stats/jobs (days validations + idempotency), recipients CRUD + guardrails, /api/interrogation/email summary+detailed via Resend sandbox (delivered@resend.dev), cross-user 404, invalid-mode 422. New frontend testIDs: job-trend-chart, bar-ok-<date>, bar-fail-<date>, email-sheet, email-summary, email-detailed, add-recipient-toggle, recipient-name/email/note, save-recipient, recipient-<rcp_id>, delete-recipient-<rcp_id>, email-note, email-cancel, email-send, email-close. Emergent-managed Resend proxy at https://integrations.emergentagent.com/api/v1/email/send uses header X-Email-Key=EMERGENT_EMAIL_KEY; test recipient delivered@resend.dev returns 200 reliably. Duplicate delivered@resend.dev per superadmin will 409 — E2E test now cleans up between runs.",
+  "rca_of_issue": "N/A — no bugs found. All 15 iteration-8 endpoints behave per spec; all 17 iteration-7 regression tests pass; both new frontend flows work end-to-end on 390x844 mobile viewport with correct testIDs; email guardrail (services/email.py::_assert_safe_email) is invoked in the only send path and cannot be bypassed."
+}

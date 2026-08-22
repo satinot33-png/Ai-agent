@@ -2,6 +2,7 @@ import { MaterialCommunityIcons as Icon } from "@expo/vector-icons";
 import React, { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api } from "@/src/api";
+import { EmailReportSheet } from "@/src/components/EmailReportSheet";
 import { Toast } from "@/src/components/Feedback";
 import { C } from "@/src/theme";
 import { InterrogationResult, User } from "@/src/types";
@@ -35,6 +36,7 @@ export function InterrogationPage({ token, user, onLog }: { token: string; user:
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
   const [exporting, setExporting] = useState<"summary" | "detailed" | "">("");
+  const [emailMode, setEmailMode] = useState<"summary" | "detailed" | "">("");
 
   const exportPdf = async (mode: "summary" | "detailed") => {
     if (exporting) return;
@@ -165,8 +167,48 @@ export function InterrogationPage({ token, user, onLog }: { token: string; user:
           <Text style={s.muted}>
             PDF dilengkapi header Export 7 AI + tanda tangan digital: {user.name} · {user.role}
           </Text>
+
+          <Text style={[s.section, { marginTop: 12 }]}>KIRIM LAPORAN VIA EMAIL</Text>
+          <View style={s.exportRow}>
+            <Pressable
+              testID="email-summary"
+              style={[s.emailBtn]}
+              onPress={() => setEmailMode("summary")}
+              disabled={!!exporting}
+            >
+              <Icon name="email-fast-outline" size={22} color={C.green} />
+              <View style={{ flex: 1 }}>
+                <Text style={[s.exportTitle, { color: C.green }]}>EMAIL RINGKAS</Text>
+                <Text style={s.muted}>Kirim PDF ringkas + isi laporan di email</Text>
+              </View>
+            </Pressable>
+            <Pressable
+              testID="email-detailed"
+              style={[s.emailBtn]}
+              onPress={() => setEmailMode("detailed")}
+              disabled={!!exporting}
+            >
+              <Icon name="email-multiple-outline" size={22} color={C.green} />
+              <View style={{ flex: 1 }}>
+                <Text style={[s.exportTitle, { color: C.green }]}>EMAIL DETAIL 24 JAM</Text>
+                <Text style={s.muted}>Kirim PDF detail + ringkasan HTML</Text>
+              </View>
+            </Pressable>
+          </View>
         </View>
       )}
+
+      <EmailReportSheet
+        open={!!emailMode}
+        token={token}
+        mode={emailMode || "summary"}
+        onClose={() => setEmailMode("")}
+        onSent={(r) => {
+          setEmailMode("");
+          setOk(`Laporan terkirim ke ${r.recipient}.`);
+          onLog();
+        }}
+      />
     </ScrollView>
   );
 }
@@ -213,4 +255,12 @@ const s = StyleSheet.create({
     padding: 12,
   },
   exportTitle: { color: C.amber, fontSize: 12, fontWeight: "900", letterSpacing: 0.5 },
+  emailBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: C.green,
+    padding: 12,
+  },
 });

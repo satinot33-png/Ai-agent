@@ -31,6 +31,7 @@ EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/
 
 from services.wa import send_whatsapp  # noqa: E402
 from services.pdf import build_pdf  # noqa: E402
+from services.email import send_interrogation_email  # noqa: E402
 
 OTP_TTL_MINUTES = int(os.environ.get("OTP_TTL_MINUTES", "10"))
 FEED_MESSAGES = [
@@ -77,6 +78,18 @@ class OTPVerifyRequest(BaseModel):
 
 class OTPResendRequest(BaseModel):
     username: str = Field(min_length=3, max_length=40)
+
+
+class RecipientCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    email: EmailStr
+    note: Optional[str] = Field(default=None, max_length=120)
+
+
+class EmailInterrogationRequest(BaseModel):
+    recipient_id: str = Field(min_length=6, max_length=40)
+    mode: str = Field(default="summary", pattern="^(summary|detailed)$")
+    note: Optional[str] = Field(default=None, max_length=280)
 
 
 class UserCreate(BaseModel):
@@ -356,6 +369,22 @@ async def seed_database():
     # Kick off background feed generator (idempotent — only starts once)
     if not getattr(app.state, "_feed_task", None):
         app.state._feed_task = asyncio.create_task(_generate_feed_events())
+    # Seed 7-day job stats history (idempotent)
+    today = datetime.now(timezone.utc).date()
+    for offset in range(6, -1, -1):
+        day = today - timedelta(days=offset)
+        key = day.isoformat()
+        if not await db.job_stats.find_one({"date": key}):
+            base = 90 + (offset * 7) + random.randint(-15, 20)
+            success = max(20, base + random.randint(-10, 25))
+            failed = max(0, random.randint(1, 8))
+            await db.job_stats.insert_one({
+                "date": key,
+                "successful": success,
+                "failed": failed,
+                "active": random.randint(1, 6),
+                "created_at": datetime.now(timezone.utc),
+            })
 
 
 @api.get("/health")
@@ -474,7 +503,17 @@ async def dashboard(user=Depends(current_user)):
     ais = await db.ai_agents.find({}, {"_id": 0}).to_list(20)
     countries = await db.countries.find({"enabled": True}, {"_id": 0}).to_list(300)
     logs = await db.audit_logs.find({}, {"_id": 0}).sort("created_at", -1).to_list(8)
-    return {"server": server, "ais": ais, "countries": countries, "logs": logs, "user": user}
+    stats = await db.job_stats.find({}, {"_id": 0}).sort("date", 1).to_list(30)
+    return {
+        "server": server, "ais": ais, "countries": countries,
+        "logs": logs, "user": user, "job_stats": stats[-7:],
+    }
+
+
+@api.get("/stats/jobs")
+async def stats_jobs(user=Depends(current_user), days: int = Query(default=7, ge=1, le=30)):
+    rows = await db.job_stats.find({}, {"_id": 0}).sort("date", -1).to_list(days)
+    return list(reversed(rows))
 
 
 @api.get("/ai")
@@ -609,6 +648,90 @@ async def interrogation_pdf(
             "X-Report-Mode": mode,
         },
     )
+
+
+@api.get("/settings/recipients")
+async def list_recipients(user=Depends(current_user)):
+    rows = await db.report_recipients.find(
+        {"user_id": user["user_id"]}, {"_id": 0}
+    ).sort("created_at", 1).to_list(50)
+    return rows
+
+
+@api.post("/settings/recipients")
+async def add_recipient(payload: RecipientCreate, user=Depends(current_user)):
+    if await db.report_recipients.count_documents({"user_id": user["user_id"]}) >= 20:
+        raise HTTPException(400, "Maksimal 20 penerima per akun.")
+    if await db.report_recipients.find_one({"user_id": user["user_id"], "email": payload.email}):
+        raise HTTPException(409, "Email penerima sudah terdaftar.")
+    record = {
+        "recipient_id": f"rcp_{uuid.uuid4().hex[:12]}",
+        "user_id": user["user_id"],
+        "name": payload.name.strip(),
+        "email": payload.email,
+        "note": (payload.note or "").strip(),
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db.report_recipients.insert_one(record.copy())
+    record["created_at"] = record["created_at"].isoformat()
+    await audit(user, "RECIPIENT_ADD", f"{payload.name} <{payload.email}>")
+    record.pop("_id", None)
+    return record
+
+
+@api.delete("/settings/recipients/{recipient_id}")
+async def delete_recipient(recipient_id: str, user=Depends(current_user)):
+    result = await db.report_recipients.delete_one(
+        {"user_id": user["user_id"], "recipient_id": recipient_id}
+    )
+    if not result.deleted_count:
+        raise HTTPException(404, "Penerima tidak ditemukan")
+    await audit(user, "RECIPIENT_DELETE", recipient_id)
+    return {"deleted": True}
+
+
+@api.post("/interrogation/email")
+async def email_interrogation(
+    payload: EmailInterrogationRequest,
+    user=Depends(current_user),
+):
+    recipient = await db.report_recipients.find_one(
+        {"user_id": user["user_id"], "recipient_id": payload.recipient_id},
+        {"_id": 0},
+    )
+    if not recipient:
+        raise HTTPException(404, "Penerima tidak ditemukan di daftar Anda")
+    report = await interrogation(user)
+    logs: List[Dict[str, Any]] = []
+    if payload.mode == "detailed":
+        since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        logs = await db.audit_logs.find(
+            {"created_at": {"$gte": since}},
+            {"_id": 0},
+        ).sort("created_at", -1).to_list(200)
+    pdf_bytes = build_pdf(payload.mode, report, user, logs)
+    filename = f"export7ai-{payload.mode}-{datetime.now().strftime('%Y%m%d-%H%M')}.pdf"
+    try:
+        result = await send_interrogation_email(
+            to=recipient["email"],
+            recipient_name=recipient["name"],
+            report=report,
+            actor=user,
+            note=payload.note or "",
+            mode=payload.mode,
+            pdf_bytes=pdf_bytes,
+            pdf_filename=filename,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, f"Konten email ditolak guardrail: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Email delivery failed")
+        raise HTTPException(502, f"Gagal mengirim email: {exc}")
+    await audit(
+        user, "REPORT_EMAIL",
+        f"{payload.mode} → {recipient['name']} <{recipient['email']}> (id={result.get('message_id')})",
+    )
+    return result
 
 
 @api.get("/activity")

@@ -1,75 +1,62 @@
 # Export 7 AI — Control Center
 
-## Ringkasan
-Aplikasi mobile (Expo + FastAPI + MongoDB) untuk mengendalikan 7 AI bisnis ekspor. Frontend hanya berperan sebagai remote control; semua credential dan keputusan bisnis di backend.
+Mobile control panel (Expo + FastAPI + MongoDB) untuk mengendalikan 7 AI ekspor + server dari satu tempat. Frontend hanya remote-control; semua kredensial di backend.
 
 ## Fitur
-- **Login** — Username/password (JWT + bcrypt) atau Google OAuth via Emergent.
-- **Aktivasi WhatsApp OTP** — User baru wajib memverifikasi 6 digit kode yang dikirim ke WA sebelum bisa login. Provider adaptif (mock/fonnte/twilio) lewat env.
-- **Dashboard** — Status server, metrik CPU/RAM/Storage/Uptime, ringkasan 7 AI, negara target, aktivitas.
-- **7 AI + Live Feed** — Toggle ON/OFF individu & bulk (RBAC), *pulse* Live Feed polling 3 detik menampilkan aktivitas AI real-time dengan pause/resume.
-- **Pilih Negara** — 48 negara, search + filter region, toggle per-negara, bulk aktifkan/hapus.
-- **Server** — Metrik + ON/OFF/RESTART dengan bottom-sheet konfirmasi.
-- **Interogasi Server + PDF Report** — Pemeriksaan OK/WARNING/ERROR. Unduh laporan PDF **Ringkas 1 halaman** atau **Detail 24 jam** dengan header Export 7 AI + tanda tangan digital admin.
-- **Akses / User** — Form lengkap (Nama, Username, Email, WhatsApp, Password, Role, tanggal akses, allowed AI/Negara/Provinsi) + status PENDING OTP + kirim ulang.
-- **Pengaturan** — Profil, audit log 50 aktivitas terakhir, logout.
+- **Auth**: Username/password JWT bcrypt, Google OAuth via Emergent, OTP WhatsApp aktivasi.
+- **Dashboard**: Status server, metrik, ringkasan 7 AI, negara target, **Chart tren job 7 hari (sukses vs gagal)**, aktivitas.
+- **7 AI + Live Feed**: Toggle ON/OFF (RBAC), Live Feed polling 3 detik dengan pulse pause/resume.
+- **Pilih Negara**: 48 negara, search + region filter, toggle per-negara + bulk.
+- **Server**: Metrik + ON/OFF/RESTART dengan konfirmasi bottom-sheet.
+- **Interogasi Server**: OK/WARNING/ERROR + **Unduh PDF** (ringkas/detail) + **Kirim ke Email** (penerima terdaftar, PDF attachment).
+- **Akses / User**: Form lengkap + OTP WhatsApp aktivasi + kirim ulang.
+- **Pengaturan**: Profil, audit log 50 aktivitas terakhir.
 
-## Arsitektur
-```
-Expo APK ──HTTPS──▶ FastAPI (/api/*) ──▶ MongoDB
-                          │
-                          ├── JWT session store
-                          ├── Audit log (semua tindakan admin)
-                          ├── Background feed generator (asyncio)
-                          ├── OTP + mock/fonnte/twilio adapter
-                          ├── PDF (reportlab) + tanda tangan digital
-                          └── 7 AI, Countries, Provinces, Server state, Users
-```
-Semua secret di `backend/.env`. Frontend hanya membawa `EXPO_PUBLIC_BACKEND_URL`.
+## Integrasi
+| Integrasi | Provider | Status |
+|---|---|---|
+| Auth | Emergent Google OAuth + JWT+bcrypt lokal | Live |
+| WhatsApp OTP | Mock (default) / Fonnte / Twilio | Adapter siap |
+| Email PDF | Emergent-managed Resend | Live (guardrail-compliant) |
+| PDF Report | reportlab (lokal) | Live |
 
 ## Env (Backend)
 | Variable | Default | Deskripsi |
 |---|---|---|
-| `MONGO_URL` | mongodb://localhost:27017 | koneksi DB |
-| `DB_NAME` | test_database | database |
-| `JWT_SECRET` | (dev) | secret token |
-| `SUPER_ADMIN_EMAILS` | — | daftar email Google → SUPER ADMIN |
+| `MONGO_URL` / `DB_NAME` | local | database |
+| `JWT_SECRET` | (dev) | secret |
+| `SUPER_ADMIN_EMAILS` | — | Google email → SUPER ADMIN |
 | `WA_PROVIDER` | `mock` | `mock` \| `fonnte` \| `twilio` |
-| `WA_SENDER_NAME` | `Export 7 AI` | nama pengirim WA |
-| `WA_FONNTE_TOKEN` | — | token Fonnte |
-| `WA_TWILIO_SID` / `WA_TWILIO_TOKEN` / `WA_TWILIO_FROM` | — | Twilio |
+| `WA_FONNTE_TOKEN` / `WA_TWILIO_*` | — | provider WA |
 | `OTP_TTL_MINUTES` | 10 | masa berlaku OTP |
+| `EMERGENT_EMAIL_KEY` | (auto) | key Resend proxy |
+| `EMAIL_FROM_NAME` | `Export 7 AI` | display sender |
+| `EMAIL_REPLY_TO` | — | reply-to opsional |
 
 ## Endpoint utama
-- `POST /api/auth/login|session|verify-otp|resend-otp|logout`
-- `GET /api/auth/me`
-- `GET /api/dashboard`
+- `POST /api/auth/login|session|verify-otp|resend-otp|logout` · `GET /api/auth/me`
+- `GET /api/dashboard` (kini termasuk `job_stats`) · `GET /api/stats/jobs?days=`
 - `GET/PATCH/POST /api/ai(/bulk)` · `GET /api/ai/feed`
 - `GET/PATCH/POST /api/countries(/bulk)` · `GET /api/provinces`
 - `GET/POST /api/server(/action)`
-- `POST /api/interrogation` · `POST /api/interrogation/pdf?mode=summary|detailed`
+- `POST /api/interrogation(/pdf|/email)`
+- `GET/POST/DELETE /api/settings/recipients`
 - `GET/POST/PATCH/DELETE /api/users` · `POST /api/users/{id}/otp/resend`
 - `GET /api/otp/outbox` (admin) · `GET /api/activity`
 
 ## Frontend struktur
 ```
 src/
-├── ControlCenter.tsx
-├── api.ts, types.ts, theme.ts
-├── components/
-│   ├── Header.tsx, Drawer.tsx, Status.tsx
-│   ├── MultiSelect.tsx, Feedback.tsx, OtpSheet.tsx
-├── screens/
-│   ├── Login.tsx, Dashboard.tsx, AIPage.tsx (+Live Feed),
-│   ├── CountryPage.tsx, ServerPage.tsx,
-│   ├── InterrogationPage.tsx (+PDF export),
-│   ├── AccessPage.tsx (+OTP flow), SettingsPage.tsx
-└── utils/download.ts (PDF share)
+├── ControlCenter.tsx, api.ts, types.ts, theme.ts
+├── components/  Header, Drawer, Status, MultiSelect, Feedback,
+│                OtpSheet, JobTrendChart, EmailReportSheet
+├── screens/     Login, Dashboard (+chart), AIPage (+live feed),
+│                CountryPage, ServerPage,
+│                InterrogationPage (+PDF + Email), AccessPage, SettingsPage
+└── utils/       download.ts (PDF share)
 ```
 
 ## Testing
-- Iteration 6: 29/29 pytest pass
-- Iteration 7: 46/46 pytest pass (OTP, feed, PDF, RBAC)
-- E2E frontend web preview: semua flow lulus
+- Iter 6: 29/29 · Iter 7: 46/46 · Iter 8: 32/32 · Semua E2E frontend hijau.
 
-Test credentials: lihat `/app/memory/test_credentials.md`.
+Test credentials: `/app/memory/test_credentials.md`.

@@ -1,11 +1,12 @@
 import { MaterialCommunityIcons as Icon } from "@expo/vector-icons";
 import React from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { JobTrendChart, JobStat } from "@/src/components/JobTrendChart";
 import { Status } from "@/src/components/Status";
 import { AI_ICONS, C, Screen } from "@/src/theme";
 import { DashboardData } from "@/src/types";
 
-export function Dashboard({ data, go }: { data: DashboardData; go: (s: Screen) => void }) {
+export function Dashboard({ data, go }: { data: DashboardData & { job_stats?: JobStat[] }; go: (s: Screen) => void }) {
   const active = data.ais.filter((x) => x.enabled).length;
   const activeCountries = data.countries.filter((c) => c.enabled);
   const metrics: [string, string][] = [
@@ -47,6 +48,8 @@ export function Dashboard({ data, go }: { data: DashboardData; go: (s: Screen) =
           ))}
         </View>
       </View>
+
+      <JobTrendChart stats={data.job_stats || []} />
 
       <View style={s.titleRow}>
         <Text style={s.section}>AI NETWORK</Text>
