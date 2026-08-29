@@ -73,7 +73,54 @@ def _rate_reset(bucket: Dict[str, tuple[int, float]], key: str) -> None:
 
 
 ROLES = ["SUPER ADMIN", "ADMIN", "KARYAWAN"]
-ROLE_PATTERN = "^(SUPER ADMIN|ADMIN|KARYAWAN)$"
+# Accept any casing/whitespace/underscore/dash variant. Normalised via
+# normalize_role() before comparison or storage.
+_ROLE_ALIASES: Dict[str, str] = {
+    "SUPER ADMIN": "SUPER ADMIN",
+    "SUPERADMIN": "SUPER ADMIN",
+    "SUPER_ADMIN": "SUPER ADMIN",
+    "SUPER-ADMIN": "SUPER ADMIN",
+    "ADMIN": "ADMIN",
+    "KARYAWAN": "KARYAWAN",
+    "STAFF": "KARYAWAN",
+    "OPERATOR": "ADMIN",
+    "USER": "KARYAWAN",
+}
+
+
+def normalize_role(value: Any) -> Optional[str]:
+    """Return canonical role string (or None if unrecognised)."""
+    if not value:
+        return None
+    key = str(value).strip().upper().replace("_", " ").replace("-", " ")
+    key = " ".join(key.split())  # collapse whitespace
+    if key in _ROLE_ALIASES:
+        return _ROLE_ALIASES[key]
+    compact = key.replace(" ", "")
+    return _ROLE_ALIASES.get(compact)
+
+
+# Pattern for Pydantic validators: accept broad input, we normalise post-validation.
+ROLE_PATTERN = r"(?i)^\s*(super[\s_-]*admin|admin|karyawan|staff|operator|user)\s*$"
+
+# Canonical permission matrix. Server is the source of truth; frontend mirrors it.
+PERMISSIONS: Dict[str, Dict[str, bool]] = {
+    "SUPER ADMIN": {
+        "manage_users": True, "manage_ai": True, "manage_countries": True,
+        "control_server": True, "view_activity": True, "send_reports": True,
+        "assign_super_admin": True,
+    },
+    "ADMIN": {
+        "manage_users": True, "manage_ai": True, "manage_countries": True,
+        "control_server": True, "view_activity": True, "send_reports": True,
+        "assign_super_admin": False,
+    },
+    "KARYAWAN": {
+        "manage_users": False, "manage_ai": False, "manage_countries": False,
+        "control_server": False, "view_activity": True, "send_reports": True,
+        "assign_super_admin": False,
+    },
+}
 
 app = FastAPI(title="Export 7 AI Control Center API")
 api = APIRouter(prefix="/api")
@@ -241,13 +288,28 @@ async def current_user(authorization: Optional[str] = Header(default=None)) -> D
         raise HTTPException(401, "Pengguna tidak ditemukan")
     if user.get("enabled") is False:
         raise HTTPException(403, "Akun Anda dinonaktifkan oleh admin")
+    # Always expose the canonical, normalised role + permission matrix to callers.
+    canonical = normalize_role(user.get("role")) or "KARYAWAN"
+    user["role"] = canonical
+    user["permissions"] = PERMISSIONS.get(canonical, PERMISSIONS["KARYAWAN"])
     return user
 
 
 def require_roles(*roles: str):
+    allowed = {normalize_role(r) for r in roles if normalize_role(r)}
+
     async def dependency(user: Dict[str, Any] = Depends(current_user)):
-        allowed = {role.upper() for role in roles}
-        if str(user.get("role", "")).upper() not in allowed:
+        role = normalize_role(user.get("role"))
+        if role not in allowed:
+            raise HTTPException(403, "Anda tidak memiliki izin untuk tindakan ini")
+        return user
+    return dependency
+
+
+def require_permission(perm: str):
+    async def dependency(user: Dict[str, Any] = Depends(current_user)):
+        role = normalize_role(user.get("role")) or "KARYAWAN"
+        if not PERMISSIONS.get(role, {}).get(perm):
             raise HTTPException(403, "Anda tidak memiliki izin untuk tindakan ini")
         return user
     return dependency
@@ -421,6 +483,15 @@ async def seed_database():
                 "auth_provider": "password",
                 "pending_activation": False,
             })
+    # One-time role normalisation for legacy records (idempotent).
+    migrated = 0
+    async for row in db.users.find({}, {"role": 1, "user_id": 1}):
+        canonical = normalize_role(row.get("role"))
+        if canonical and canonical != row.get("role"):
+            await db.users.update_one({"user_id": row["user_id"]}, {"$set": {"role": canonical}})
+            migrated += 1
+    if migrated:
+        logger.info("Normalised role field on %d legacy user records", migrated)
     # Kick off background feed generator (idempotent — only starts once)
     if not getattr(app.state, "_feed_task", None):
         app.state._feed_task = asyncio.create_task(_generate_feed_events())
@@ -861,19 +932,33 @@ async def otp_outbox(user=Depends(require_roles("SUPER ADMIN", "ADMIN")), limit:
 
 
 @api.get("/users")
-async def users(user=Depends(require_roles("SUPER ADMIN", "ADMIN"))):
-    return await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(200)
+async def users(user=Depends(require_permission("manage_users"))):
+    rows = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(200)
+    # Normalise role for legacy records so the client always gets canonical form.
+    for row in rows:
+        canonical = normalize_role(row.get("role")) or "KARYAWAN"
+        row["role"] = canonical
+        row["permissions"] = PERMISSIONS.get(canonical, PERMISSIONS["KARYAWAN"])
+    return rows
+
+
+@api.get("/permissions")
+async def permissions_matrix(user=Depends(current_user)):
+    """Expose the full role→permission matrix so the frontend can render toggles."""
+    return {"roles": ROLES, "permissions": PERMISSIONS, "current": user.get("permissions", {})}
 
 
 @api.post("/users")
-async def create_user(payload: UserCreate, user=Depends(require_roles("SUPER ADMIN", "ADMIN"))):
-    if payload.role == "SUPER ADMIN" and user.get("role") != "SUPER ADMIN":
+async def create_user(payload: UserCreate, user=Depends(require_permission("manage_users"))):
+    role = normalize_role(payload.role) or "KARYAWAN"
+    if role == "SUPER ADMIN" and not PERMISSIONS[normalize_role(user["role"])]["assign_super_admin"]:
         raise HTTPException(403, "Hanya SUPER ADMIN yang dapat membuat SUPER ADMIN")
     if await db.users.find_one({"username": payload.username}):
         raise HTTPException(409, "Username sudah digunakan")
     if await db.users.find_one({"email": payload.email}):
         raise HTTPException(409, "Email sudah digunakan")
     record = payload.model_dump(exclude={"password"})
+    record["role"] = role
     record.update({
         "user_id": f"user_{uuid.uuid4().hex[:12]}",
         "password_hash": hash_password(payload.password),
@@ -882,12 +967,12 @@ async def create_user(payload: UserCreate, user=Depends(require_roles("SUPER ADM
     })
     await db.users.insert_one(record.copy())
     delivery = await issue_otp(record, purpose="activation")
-    await audit(user, "USER_CREATE", f"{payload.username} ({payload.role}) — OTP dikirim ke WA")
+    await audit(user, "USER_CREATE", f"{payload.username} ({role}) — OTP dikirim ke WA")
     return {"user": public_user(record), "otp": delivery}
 
 
 @api.post("/users/{user_id}/otp/resend")
-async def resend_user_otp(user_id: str, user=Depends(require_roles("SUPER ADMIN", "ADMIN"))):
+async def resend_user_otp(user_id: str, user=Depends(require_permission("manage_users"))):
     target = await db.users.find_one({"user_id": user_id})
     if not target:
         raise HTTPException(404, "User tidak ditemukan")
@@ -898,44 +983,75 @@ async def resend_user_otp(user_id: str, user=Depends(require_roles("SUPER ADMIN"
     return {"delivery": delivery}
 
 
+async def _count_super_admins() -> int:
+    """Count active users whose normalised role is SUPER ADMIN."""
+    total = 0
+    async for row in db.users.find({"enabled": {"$ne": False}}, {"role": 1}):
+        if normalize_role(row.get("role")) == "SUPER ADMIN":
+            total += 1
+    return total
+
+
 @api.patch("/users/{user_id}")
-async def update_user(user_id: str, payload: UserUpdate, user=Depends(require_roles("SUPER ADMIN", "ADMIN"))):
+async def update_user(user_id: str, payload: UserUpdate, user=Depends(require_permission("manage_users"))):
     updates = payload.model_dump(exclude_none=True)
     password = updates.pop("password", None)
     if password:
         updates["password_hash"] = hash_password(password)
+    if "role" in updates:
+        updates["role"] = normalize_role(updates["role"]) or "KARYAWAN"
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
     if not target:
         raise HTTPException(404, "User tidak ditemukan")
-    caller_is_super = user.get("role") == "SUPER ADMIN"
-    # Only SUPER ADMIN can touch another SUPER ADMIN (self-edit is allowed).
-    if target.get("role") == "SUPER ADMIN" and not caller_is_super:
+    target_role = normalize_role(target.get("role")) or "KARYAWAN"
+    caller_role = normalize_role(user.get("role")) or "KARYAWAN"
+    caller_is_super = caller_role == "SUPER ADMIN"
+    if target_role == "SUPER ADMIN" and not caller_is_super:
         raise HTTPException(403, "Hanya SUPER ADMIN yang dapat mengubah SUPER ADMIN")
     if updates.get("role") == "SUPER ADMIN" and not caller_is_super:
         raise HTTPException(403, "Hanya SUPER ADMIN yang dapat memberikan role SUPER ADMIN")
-    # Non-SUPER-ADMIN cannot demote a SUPER ADMIN (target check above already covers it).
+    # Guard: never let the last active SUPER ADMIN demote/disable themselves.
+    is_self = user_id == user.get("user_id")
+    demoting = "role" in updates and updates["role"] != "SUPER ADMIN" and target_role == "SUPER ADMIN"
+    disabling = updates.get("enabled") is False and target_role == "SUPER ADMIN"
+    if (demoting or disabling) and await _count_super_admins() <= 1:
+        raise HTTPException(400, "Tidak dapat menonaktifkan/menurunkan SUPER ADMIN terakhir yang aktif.")
     if not updates:
         raise HTTPException(400, "Tidak ada perubahan")
     result = await db.users.update_one({"user_id": user_id}, {"$set": updates})
     if not result.matched_count:
         raise HTTPException(404, "User tidak ditemukan")
     record = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
-    await audit(user, "USER_UPDATE", user_id)
+    if record:
+        record["role"] = normalize_role(record.get("role")) or "KARYAWAN"
+        record["permissions"] = PERMISSIONS.get(record["role"], PERMISSIONS["KARYAWAN"])
+    await audit(
+        user, "USER_UPDATE",
+        f"{user_id} · self={is_self} · updated_keys={sorted(updates.keys())}",
+    )
     return record
 
 
 @api.patch("/users/{user_id}/status")
-async def toggle_user_status(user_id: str, payload: ToggleRequest, user=Depends(require_roles("SUPER ADMIN", "ADMIN"))):
+async def toggle_user_status(user_id: str, payload: ToggleRequest, user=Depends(require_permission("manage_users"))):
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
     if not target:
         raise HTTPException(404, "User tidak ditemukan")
-    if target.get("role") == "SUPER ADMIN" and user.get("role") != "SUPER ADMIN":
+    target_role = normalize_role(target.get("role")) or "KARYAWAN"
+    caller_role = normalize_role(user.get("role")) or "KARYAWAN"
+    if target_role == "SUPER ADMIN" and caller_role != "SUPER ADMIN":
         raise HTTPException(403, "Hanya SUPER ADMIN yang dapat mengubah status SUPER ADMIN")
+    if payload.enabled is False and target_role == "SUPER ADMIN" and await _count_super_admins() <= 1:
+        raise HTTPException(400, "Tidak dapat menonaktifkan SUPER ADMIN terakhir yang aktif.")
     result = await db.users.update_one({"user_id": user_id}, {"$set": {"enabled": payload.enabled}})
     if not result.matched_count:
         raise HTTPException(404, "User tidak ditemukan")
     await audit(user, "USER_STATUS", f"{user_id} → {'ON' if payload.enabled else 'OFF'}")
-    return await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+    record = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
+    if record:
+        record["role"] = normalize_role(record.get("role")) or "KARYAWAN"
+        record["permissions"] = PERMISSIONS.get(record["role"], PERMISSIONS["KARYAWAN"])
+    return record
 
 
 @api.delete("/users/{user_id}")

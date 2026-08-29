@@ -14,11 +14,12 @@ import { Status } from "@/src/components/Status";
 import { Toast } from "@/src/components/Feedback";
 import { C } from "@/src/theme";
 import { Country, User } from "@/src/types";
+import { hasPermission } from "@/src/utils/roles";
 
 type Props = { token: string; user: User; onLog: () => void };
 
 export function CountryPage({ token, user, onLog }: Props) {
-  const isAdmin = ["SUPER ADMIN", "ADMIN"].includes(String(user.role).toUpperCase());
+  const isAdmin = hasPermission(user, "manage_countries");
   const [countries, setCountries] = useState<Country[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string>("");

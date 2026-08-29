@@ -1,5 +1,15 @@
 export type Role = "SUPER ADMIN" | "ADMIN" | "KARYAWAN";
 
+export type Permissions = {
+  manage_users?: boolean;
+  manage_ai?: boolean;
+  manage_countries?: boolean;
+  control_server?: boolean;
+  view_activity?: boolean;
+  send_reports?: boolean;
+  assign_super_admin?: boolean;
+};
+
 export type User = {
   user_id?: string;
   name: string;
@@ -15,6 +25,8 @@ export type User = {
   access_end?: string | null;
   picture?: string;
   auth_provider?: string;
+  pending_activation?: boolean;
+  permissions?: Permissions;
 };
 
 export type AIAgent = {

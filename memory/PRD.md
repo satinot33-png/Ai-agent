@@ -56,6 +56,6 @@ src/
 3. Refresh interval: iOS ~30 menit (Timeline), Android via WorkManager 30 menit.
 
 ## Testing
-- Iter 6: 29/29 · Iter 7: 46/46 · Iter 8: 32/32 · Iter 9: 42/42 · Semua E2E frontend hijau.
+- Iter 6: 29/29 · Iter 7: 46/46 · Iter 8: 32/32 · Iter 9: 42/42 · Iter 10 (security): 64/64 · Iter 11 (RBAC normalisasi): 84/84 · Semua E2E frontend hijau.
 
 Test credentials: `/app/memory/test_credentials.md`.

@@ -14,6 +14,7 @@ import { Status } from "@/src/components/Status";
 import { Toast } from "@/src/components/Feedback";
 import { AI_ICONS, C } from "@/src/theme";
 import { AIAgent, User } from "@/src/types";
+import { hasPermission } from "@/src/utils/roles";
 
 type FeedEvent = {
   event_id: string;
@@ -27,7 +28,7 @@ type FeedEvent = {
 type Props = { token: string; user: User; onLog: () => void };
 
 export function AIPage({ token, user, onLog }: Props) {
-  const isAdmin = ["SUPER ADMIN", "ADMIN"].includes(String(user.role).toUpperCase());
+  const isAdmin = hasPermission(user, "manage_ai");
   const [ais, setAis] = useState<AIAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string>("");

@@ -1,0 +1,51 @@
+{
+  "summary": "Iteration 11 (role normalization + permission matrix + last-super-admin guard) fully verified. Backend: 20/20 new iter11 tests + 64/64 iter7+8+9+10 regression = 84/84 PASS. Role normalization: GET /api/auth/me returns canonical 'SUPER ADMIN' regardless of legacy DB values (super_admin/Super Admin/SUPER_ADMIN/super-admin all verified via motor script + login roundtrip); GET /api/users normalises operator→ADMIN, staff→KARYAWAN, user→KARYAWAN and returns per-user permissions dict. Permission matrix on /auth/me: SUPER ADMIN all 7 keys True; ADMIN all True except assign_super_admin=false; KARYAWAN all False except view_activity+send_reports=true. GET /api/permissions open to all authed users, returns {roles, permissions, current}; unauthed 401. GET /api/users returns 403 for karyawan, 200 for admin+super with canonical role + permissions per row. POST /users role='super_admin' (lowercase) accepted by super and stored canonical; admin creating SUPER_ADMIN → 403; karyawan create → 403. PATCH /users/{id} role='karyawan' stored as 'KARYAWAN'. Iter-10 SEC-001 regression: admin PATCH super → 403 confirmed. Last-super-admin guard: superadmin PATCH self status enabled=false → 400 'Tidak dapat menonaktifkan SUPER ADMIN terakhir yang aktif.'; superadmin PATCH self role=ADMIN → 400 'Tidak dapat menonaktifkan/menurunkan SUPER ADMIN terakhir yang aktif.' (both contain 'SUPER ADMIN terakhir'); after creating a second SUPER ADMIN and activating via DB, guard lifted (disable of second super returns 200). Frontend E2E (390x844): (a) superadmin login → drawer → Akses/User shows FULL page (User Baru form + Daftar 5 users, no denied banner) — validated with legacy role 'super_admin' in DB via /auth/me returning canonical (b implicit); (c) karyawan → Akses/User shows 'Anda tidak memiliki izin untuk mengelola pengguna. Role Anda saat ini: KARYAWAN' with no form; (d) admin → full form visible, [data-testid=role-SUPER-ADMIN] rendered with computed opacity 0.4 (visually disabled); (e) superadmin created KARYAWAN test user 'iter11ui_<hex>' → toast 'User baru dibuat. OTP dikirim ke WhatsApp untuk aktivasi.' + OtpSheet (testID=otp-sheet) with MOCK OTP code 760422; test user deleted via API cleanup. (f) Regression: menus Dashboard, 7 AI, Pilih Negara, Server, Interogasi Server, Akses/User, Pengaturan all render for superadmin with no error-screen; karyawan on 7 AI sees read-only banner 'Anda melihat status AI secara read-only.' (no toggle switches). Only benign RN-web warning 'shadow* style props deprecated' (same as iter9/10). MOCKED APIs unchanged: WA_PROVIDER=mock (OTP delivered via MOCK toast card), Email via Emergent-managed Resend (not exercised in this iteration). No red screens, no console errors during flows.",
+  "backend_issues": {"critical": [], "minor": [
+    {"endpoint": "PATCH /api/users/{id}", "issue": "Guard message on role-demote path is 'Tidak dapat menonaktifkan/menurunkan SUPER ADMIN terakhir yang aktif.' while the /status path uses 'Tidak dapat menonaktifkan SUPER ADMIN terakhir yang aktif.' — the spec asked for identical strings ('pesan yang sama'). Both are 400 and both contain 'SUPER ADMIN terakhir'; behaviour is correct, wording differs by 1 verb. Consider unifying to a single constant."}
+  ]},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration11.py",
+    "/app/test_reports/pytest/pytest_iter11.xml",
+    "/app/test_reports/pytest/pytest_iter11_regression.xml",
+    "/app/test_reports/iter11_super_akses.jpeg",
+    "/app/test_reports/iter11_kary_akses.jpeg",
+    "/app/test_reports/iter11_admin_akses.jpeg",
+    "/app/test_reports/iter11_create_user.jpeg",
+    "/app/test_reports/iter11_kary_ai.jpeg"
+  ],
+  "action_items": [
+    "Optional cleanup: unify last-super-admin guard error string across update_user (server.py L1018) and toggle_user_status (L1045) so both paths return the exact same message — nothing breaks otherwise."
+  ],
+  "critical_code_review_comments": [
+    "server.py::normalize_role (L91-100) handles all four requested variants (SUPER ADMIN | SUPERADMIN | SUPER_ADMIN | SUPER-ADMIN) plus alias mapping OPERATOR→ADMIN, STAFF/USER→KARYAWAN; strip+uppercase+collapse whitespace happens before lookup — bullet-proof.",
+    "server.py::current_user (L292-294) is the single choke-point that stamps `role` canonical AND attaches `permissions` matrix on every request — every downstream endpoint inherits this without duplication.",
+    "server.py::require_permission (L309-315) reads from PERMISSIONS matrix keyed by canonical role — cannot be bypassed by DB casing tricks because current_user already normalised.",
+    "server.py startup migration (L487-494) is idempotent (`if canonical and canonical != row.get('role')`) so it self-heals on every boot without churn; safe to leave in.",
+    "server.py Pydantic ROLE_PATTERN (L104) accepts case-insensitive variants BEFORE normalize_role fires — server.py POST /users L953 and PATCH /users L1002 correctly re-normalise before persisting, avoiding double-truth.",
+    "server.py::update_user L1013-1018 last-super-admin guard covers BOTH disable (enabled=false) AND demote (role != SUPER ADMIN) — defence-in-depth alongside toggle_user_status L1044-1045.",
+    "roles.ts::hasPermission (L57-64) prefers server-provided user.permissions[perm] when available and only falls back to the local MATRIX if the field is missing — correct: server remains source of truth even if frontend matrix drifts.",
+    "AccessPage.tsx (L56-57, L230-231) uses hasPermission('manage_users') for the gate and normalizeRole(user.role) for the display string — no hard-coded 'SUPER ADMIN' string comparison anywhere in this file; matches the requested end-to-end fix pattern.",
+    "Access role button testID uses r.replace(' ', '-') so `data-testid=role-SUPER-ADMIN` (dash) — confirmed opacity 0.4 for admin (assign_super_admin=false); non-super callers physically cannot submit SUPER ADMIN role because backend also rejects with 403 (L954)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration11.py",
+    "/app/test_reports/pytest/pytest_iter11.xml",
+    "/app/test_reports/pytest/pytest_iter11_regression.xml",
+    "/app/test_reports/iteration_11.json"
+  ],
+  "success_rate": {
+    "backend": "100% (20/20 iter11 + 64/64 iter7+iter8+iter9+iter10 regression = 84/84)",
+    "frontend": "100% (superadmin/admin/karyawan Akses gating + admin SUPER-ADMIN button opacity 0.4 + create KARYAWAN + OTP sheet + all 7 menus + karyawan read-only 7 AI — 0 console errors, only benign shadow* warning)"
+  },
+  "seed_data_creation": "Temp KARYAWAN 'iter11ui_<hex>' created via UI to verify OTP sheet flow, deleted via API cleanup afterwards. Backend pytest created and deleted transient users for TestUserCreateRoleNormalisation and TestLastSuperAdminGuard::create_second_super (all deleted in-test). Motor snapshots of superadmin.role and karyawan.role were restored to 'SUPER ADMIN' / 'KARYAWAN' at the end of each parametrised test (verified — logins still work).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend live at https://ai-management-hub-8.preview.emergentagent.com. Full backend regression: `EXPO_BACKEND_URL=<preview> MONGO_URL=mongodb://localhost:27017 DB_NAME=test_database python -m pytest backend/tests/test_iteration7.py backend/tests/test_iteration8.py backend/tests/test_iteration9.py backend/tests/test_iteration10.py backend/tests/test_iteration11.py -o addopts=''` — 84 tests, ~90s. Iter11 file uses motor for DB manipulation (async with `asyncio.run` inside each test); do not parametrise more than 4-5 legacy values or /auth/me rate limiter (5 in 5 min per username) will trip. Frontend Drawer SCREENS constant in src/theme.ts uses 'Interogasi Server' (NOT 'Interogasi') and 'Akses / User' with spaces — always match testID exactly `menu-<screen>`. Role button testID is `role-SUPER-ADMIN` (dash between SUPER and ADMIN, from `r.replace(' ', '-')` in AccessPage.tsx L296). Admin sees SUPER-ADMIN option at opacity 0.4 (visually disabled); backend also enforces 403 if submitted. Permissions helper hasPermission(user, key) prefers server-provided user.permissions dict, falls back to local MATRIX — safe against DB casing regressions. The one micro-nit (guard error string differs across /users PATCH vs /users/{id}/status PATCH) is documented under backend_issues.minor; both return 400 and contain 'SUPER ADMIN terakhir', so any regex/substring assertion still works. When testing last-super-admin guard, remember: the second SUPER ADMIN created via POST /users is pending_activation=True by default — must manually flip pending_activation=False AND enabled=True in Mongo before it counts toward _count_super_admins. Rate-limiter (5/5min per username) still in-process; use unique per-test usernames.",
+  "rca_of_issue": "Original bug (menu Akses/User showed 'Anda tidak memiliki izin' for a legitimate Super Admin) was caused by hard-coded role-string comparisons that broke on any non-canonical DB value ('super_admin', 'Super Admin', etc.). Iter-11 fix normalises server-side in current_user (single choke point) + startup migration + frontend hasPermission() helper that prefers server-provided permissions dict. Verified: legacy DB value 'super_admin' set via motor script → superadmin login → Akses/User loads full form with no denial banner. The permission matrix is enforced server-side by require_permission() dependency on every /users route — no security bypass introduced by the normalisation; ADMIN still cannot create SUPER ADMIN (403), KARYAWAN still cannot list users (403), last SUPER ADMIN cannot demote/disable self (400)."
+}

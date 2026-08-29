@@ -18,6 +18,7 @@ import { Status } from "@/src/components/Status";
 import { ConfirmSheet, Toast } from "@/src/components/Feedback";
 import { C } from "@/src/theme";
 import { AIAgent, Country, Province, User } from "@/src/types";
+import { hasPermission, normalizeRole } from "@/src/utils/roles";
 
 type FormState = {
   name: string;
@@ -52,8 +53,8 @@ const EMPTY: FormState = {
 const ROLE_OPTIONS: FormState["role"][] = ["SUPER ADMIN", "ADMIN", "KARYAWAN"];
 
 export function AccessPage({ token, user, onLog }: { token: string; user: User; onLog: () => void }) {
-  const isAdmin = ["SUPER ADMIN", "ADMIN"].includes(String(user.role).toUpperCase());
-  const isSuper = String(user.role).toUpperCase() === "SUPER ADMIN";
+  const canManage = hasPermission(user, "manage_users");
+  const canAssignSuper = hasPermission(user, "assign_super_admin");
   const [users, setUsers] = useState<User[]>([]);
   const [ais, setAis] = useState<AIAgent[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
@@ -111,7 +112,7 @@ export function AccessPage({ token, user, onLog }: { token: string; user: User; 
       email: item.email || "",
       whatsapp: item.whatsapp || "",
       password: "",
-      role: (["SUPER ADMIN", "ADMIN", "KARYAWAN"].includes(String(item.role)) ? item.role : "KARYAWAN") as any,
+      role: normalizeRole(item.role) as any,
       allowed_ais: item.allowed_ais || [],
       allowed_countries: item.allowed_countries || [],
       allowed_provinces: item.allowed_provinces || [],
@@ -221,12 +222,13 @@ export function AccessPage({ token, user, onLog }: { token: string; user: User; 
   );
   const provinceOptions = useMemo(() => provinces.map((p) => ({ key: p.name, label: p.name })), [provinces]);
 
-  if (!isAdmin) {
+  if (!canManage) {
     return (
       <ScrollView contentContainerStyle={s.content}>
         <Text style={s.kicker}>ACCESS CONTROL</Text>
         <Text style={s.pageTitle}>Akses / User</Text>
-        <Text style={s.muted}>Anda tidak memiliki izin untuk mengelola user.</Text>
+        <Text style={s.muted}>Anda tidak memiliki izin untuk mengelola pengguna.</Text>
+        <Text style={s.muted}>Role Anda saat ini: {normalizeRole(user.role)}</Text>
       </ScrollView>
     );
   }
@@ -288,7 +290,7 @@ export function AccessPage({ token, user, onLog }: { token: string; user: User; 
           <Text style={s.label}>ROLE / HAK AKSES</Text>
           <View style={s.roleRow}>
             {ROLE_OPTIONS.map((r) => {
-              const disabled = r === "SUPER ADMIN" && !isSuper;
+              const disabled = r === "SUPER ADMIN" && !canAssignSuper;
               return (
                 <Pressable
                   testID={`role-${r.replace(" ", "-")}`}

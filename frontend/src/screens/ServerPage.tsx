@@ -6,9 +6,10 @@ import { Status } from "@/src/components/Status";
 import { ConfirmSheet, Toast } from "@/src/components/Feedback";
 import { C } from "@/src/theme";
 import { ServerState, User } from "@/src/types";
+import { hasPermission } from "@/src/utils/roles";
 
 export function ServerPage({ token, user, onLog }: { token: string; user: User; onLog: () => void }) {
-  const isAdmin = ["SUPER ADMIN", "ADMIN"].includes(String(user.role).toUpperCase());
+  const isAdmin = hasPermission(user, "control_server");
   const [state, setState] = useState<ServerState | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
